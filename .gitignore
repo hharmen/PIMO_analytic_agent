@@ -3,4 +3,7 @@ __pycache__/
 .venv/
 .env
 .pytest_cache/
+.idea/
+.vscode/
 runs/
+states/
