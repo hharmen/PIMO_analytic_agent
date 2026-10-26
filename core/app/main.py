@@ -1,16 +1,39 @@
-"""Core API"""
+"""Core API: вход для фронтенда. Аутентификация, чаты, сообщения, вызов агента и checker'а."""
+
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import CHECKER_URL, FILE_SERVICE_URL
+from app.auth.router import router as auth_router
+from app.chats.router import router as chats_router
+from app.config import CHECKER_URL, CORS_ORIGINS, FILE_SERVICE_URL
+from app.db.session import create_tables
 
-app = FastAPI(title="Core API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_tables() 
+    yield
 
 
-@app.get("/health")
+app = FastAPI(title="Core API", version="0.2.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router)
+app.include_router(chats_router)
+
+
+@app.get("/health", tags=["service"])
 def health() -> dict:
-    """Core жив + видит ли он соседние сервисы внутри docker compose."""
+    """Core жив + видит ли он соседние сервисы."""
     return {
         "status": "ok",
         "checker": _ping(f"{CHECKER_URL}/health"),
