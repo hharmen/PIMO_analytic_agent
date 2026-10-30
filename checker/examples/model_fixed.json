@@ -1,0 +1,94 @@
+{
+  "name": "RequestApproval",
+  "variables": [
+    {
+      "name": "status",
+      "type": "enum",
+      "values": [
+        "Created",
+        "Approved",
+        "Executed"
+      ]
+    },
+    {
+      "name": "approved",
+      "type": "boolean"
+    }
+  ],
+  "initial": {
+    "status": "Created",
+    "approved": false
+  },
+  "transitions": [
+    {
+      "name": "Approve",
+      "guard": {
+        "eq": [
+          {
+            "var": "status"
+          },
+          "Created"
+        ]
+      },
+      "effects": [
+        {
+          "set": [
+            "status",
+            "Approved"
+          ]
+        },
+        {
+          "set": [
+            "approved",
+            true
+          ]
+        }
+      ],
+      "source_ref": "REQ-1"
+    },
+    {
+      "name": "Execute",
+      "guard": {
+        "eq": [
+          {
+            "var": "status"
+          },
+          "Approved"
+        ]
+      },
+      "effects": [
+        {
+          "set": [
+            "status",
+            "Executed"
+          ]
+        }
+      ],
+      "source_ref": "REQ-2"
+    }
+  ],
+  "properties": [
+    {
+      "id": "ApprovalRequired",
+      "type": "forbidden_state",
+      "expression": {
+        "and": [
+          {
+            "eq": [
+              {
+                "var": "status"
+              },
+              "Executed"
+            ]
+          },
+          {
+            "not": {
+              "var": "approved"
+            }
+          }
+        ]
+      },
+      "source_ref": "REQ-2"
+    }
+  ]
+}

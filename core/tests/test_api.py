@@ -17,15 +17,13 @@ def uniq() -> str:
     return f"{uuid.uuid4().hex[:8]}@example.com"
 
 
-# ---------- аутентификация ----------
-
 
 def test_register_login_me(client):
     email = uniq()
     r = client.post("/auth/register", json={"email": email.upper(), "password": "password123"})
     assert r.status_code == 201
-    assert r.json()["email"] == email  # приведён к нижнему регистру
-    assert "password" not in json.dumps(r.json())  # ни пароль, ни хеш не утекают
+    assert r.json()["email"] == email
+    assert "password" not in json.dumps(r.json()) 
 
     token = client.post("/auth/login", json={"email": email, "password": "password123"}).json()["access_token"]
     me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -53,7 +51,7 @@ def test_wrong_password_and_unknown_user_look_identical(client):
     [
         {"email": "not-an-email", "password": "password123"},
         {"email": uniq(), "password": "short"},
-        {"email": uniq(), "password": "я" * 40},  # 80 байт: не влезает в bcrypt
+        {"email": uniq(), "password": "я" * 40}, 
     ],
 )
 def test_bad_credentials_rejected(client, body):
@@ -72,15 +70,14 @@ def test_expired_token_rejected(client, monkeypatch):
     from app.auth import security
 
     h = register_and_login(client, uniq())
-    monkeypatch.setattr(security, "JWT_EXPIRE_MINUTES", -1)  # токены выпускаются уже просроченными
+    monkeypatch.setattr(security, "JWT_EXPIRE_MINUTES", -1) 
     email = uniq()
     client.post("/auth/register", json={"email": email, "password": "password123"})
     token = client.post("/auth/login", json={"email": email, "password": "password123"}).json()["access_token"]
     assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
-    assert client.get("/auth/me", headers=h).status_code == 200  # ранее выданный токен жив
+    assert client.get("/auth/me", headers=h).status_code == 200  
 
 
-# ---------- чаты и сообщения ----------
 
 
 def test_chat_lifecycle_and_messages(client):
@@ -97,7 +94,6 @@ def test_chat_lifecycle_and_messages(client):
 
     msgs = client.get(f"/chats/{chat['id']}/messages", headers=h).json()
     assert [m["role"] for m in msgs] == ["user", "assistant"]
-    # название чата взято из первого сообщения
     assert client.get("/chats", headers=h).json()[0]["title"] == "Заявка создаётся и согласуется"
 
     assert client.delete(f"/chats/{chat['id']}", headers=h).status_code == 204
@@ -117,7 +113,7 @@ def test_users_cannot_see_each_others_chats(client):
         kwargs = {"json": {"content": "hi"}} if method == "post" else {}
         r = getattr(client, method)(url, headers=bob, **kwargs)
         assert r.status_code == 404, (method, url)
-    assert client.get(f"/chats/{chat['id']}/messages", headers=alice).status_code == 200  # у владельца всё цело
+    assert client.get(f"/chats/{chat['id']}/messages", headers=alice).status_code == 200  
 
 
 def test_blank_message_rejected(client):
@@ -155,8 +151,6 @@ def test_agent_check_result_is_saved(client, monkeypatch):
     assert body["check_run"]["status"] == "PROPERTY_VIOLATED"
     assert len(client.get(f"/chats/{chat['id']}/checks", headers=h).json()) == 1
 
-
-# ---------- ручные проверки (checker) ----------
 
 
 def test_manual_check_saved(client, monkeypatch):
