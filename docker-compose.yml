@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pimo
+      POSTGRES_PASSWORD: pimo
+      POSTGRES_DB: pimo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pimo -d pimo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  checker:
+    build: ./checker
+    ports:
+      - "8001:8001"
+
+  core:
+    build: ./core
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://pimo:pimo@db:5432/pimo
+      CHECKER_URL: http://checker:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      checker:
+        condition: service_healthy
+
+volumes:
+  pgdata:
