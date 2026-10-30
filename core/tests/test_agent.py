@@ -71,7 +71,9 @@ class FakeLLM:
     def _create(self, **kwargs):
         self.calls.append(kwargs)
         usage = SimpleNamespace(prompt_tokens=100, completion_tokens=10)
-        return SimpleNamespace(choices=[SimpleNamespace(message=self.replies.pop(0))], usage=usage)
+        message = self.replies.pop(0)
+        choice = SimpleNamespace(message=message, finish_reason=getattr(message, "finish_reason", "stop"))
+        return SimpleNamespace(choices=[choice], usage=usage)
 
 
 @pytest.fixture()
@@ -117,6 +119,31 @@ def test_repair_then_violation_then_explanation(fake):
     assert "initial.cancelled: Нет начального значения" in tool_messages[0]["content"]
     assert "много текста TLC" not in tool_messages[1]["content"]
     assert "Execute: status=Executed" in tool_messages[1]["content"]
+
+
+def string_tool_call(arguments, call_id="call_s"):
+    function = SimpleNamespace(name="check_behavior", arguments=arguments)
+    return SimpleNamespace(content=None, tool_calls=[SimpleNamespace(id=call_id, function=function)])
+
+
+def test_model_sent_as_string(fake):
+    # qwen иногда кладёт объект в model строкой: {"model": "{\"name\": ...}"}
+    arguments = json.dumps({"model": json.dumps(BROKEN_MODEL)})
+    llm, sent = fake([string_tool_call(arguments), text("объяснение")], [VIOLATED])
+    reply = service.run_agent([{"role": "user", "content": "требования"}])
+    assert sent == [BROKEN_MODEL] and reply.check_result["status"] == "PROPERTY_VIOLATED"
+
+
+def test_truncated_model_is_repaired(fake):
+    cut = json.dumps({"model": json.dumps(BROKEN_MODEL)[:200]})  # строка оборвалась на полуслове
+    truncated = string_tool_call(cut)
+    truncated.finish_reason = "length"
+    llm, sent = fake([truncated, tool_call(BROKEN_MODEL), text("объяснение")], [VIOLATED])
+    reply = service.run_agent([{"role": "user", "content": "требования"}])
+    assert sent == [BROKEN_MODEL]  # обрезанное в checker не ушло
+    tool_messages = [m for m in llm.calls[1]["messages"] if m["role"] == "tool"]
+    assert "обрезан" in tool_messages[0]["content"]
+    assert reply.check_result["status"] == "PROPERTY_VIOLATED"
 
 
 def test_plain_question_without_check(fake):

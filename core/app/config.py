@@ -30,8 +30,8 @@ CORS_ORIGINS = [
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
-LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "90"))
-LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "3000"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "180"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "8000"))  # у "думающих" моделей размышления тоже считаются
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 # false - если модель не умеет tool calling
 LLM_USE_TOOLS = os.environ.get("LLM_USE_TOOLS", "true").lower() not in ("0", "false", "no")

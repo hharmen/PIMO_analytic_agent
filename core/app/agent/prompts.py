@@ -82,7 +82,10 @@ TOOL_CHECK_BEHAVIOR = {
             "properties": {
                 "model": {
                     "type": "object",
-                    "description": "Модель: name, variables, initial, transitions, properties (формат из системного промпта)",
+                    "description": (
+                        "Модель: name, variables, initial, transitions, properties (формат из системного промпта). "
+                        "JSON-объект, не строка"
+                    ),
                 }
             },
             "required": ["model"],

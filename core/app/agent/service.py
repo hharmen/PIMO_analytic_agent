@@ -52,6 +52,7 @@ class _RunState:
     check_result: dict | None = None
     invalid_count: int = 0
     checker_error: str | None = None
+    truncated: bool = False  # последний ответ LLM обрезан по max_tokens
     usage: dict = field(default_factory=lambda: {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
 
     @property
@@ -166,6 +167,7 @@ def _call_llm(client, messages: list[dict], allow_tools: bool, state: _RunState)
 
     response = client.chat.completions.create(**kwargs)
     state.usage["llm_calls"] += 1
+    state.truncated = getattr(response.choices[0], "finish_reason", None) == "length"
     if response.usage:
         state.usage["prompt_tokens"] += response.usage.prompt_tokens or 0
         state.usage["completion_tokens"] += response.usage.completion_tokens or 0
@@ -198,14 +200,22 @@ def _handle_tool_call(call, state: _RunState) -> str:
     try:
         args = call.function.arguments
         args = json.loads(args) if isinstance(args, str) else args
+        model = args.get("model", args) if isinstance(args, dict) else args  # бывает без обёртки model
+        if isinstance(model, str):  # некоторые модели присылают объект строкой
+            model = json.loads(model)
     except json.JSONDecodeError as exc:
-        state.invalid_count += 1
-        return json.dumps(
-            {"status": "MODEL_INVALID", "errors": [f"Аргументы не являются корректным JSON: {exc}"]},
-            ensure_ascii=False,
-        )
-    model = args.get("model", args) if isinstance(args, dict) else args  # бывает без обёртки model
+        if state.truncated:
+            return _invalid(state, "Ответ обрезан по лимиту длины. Пришли модель короче: без description, "
+                                   "source_ref - 2-5 слов, без лишних свойств.")
+        return _invalid(state, f"Аргументы не являются корректным JSON: {exc}")
+    if not isinstance(model, dict):
+        return _invalid(state, "model должен быть JSON-объектом {...}, а не строкой или списком")
     return _run_check(model, state)
+
+
+def _invalid(state: _RunState, message: str) -> str:
+    state.invalid_count += 1
+    return json.dumps({"status": "MODEL_INVALID", "errors": [message]}, ensure_ascii=False)
 
 
 def _run_check(model: Any, state: _RunState) -> str:
