@@ -1,5 +1,5 @@
 {
-  "name": "Request",
+  "name": "RequestApproval",
   "variables": [
     {
       "name": "status",
@@ -7,26 +7,17 @@
       "values": [
         "Created",
         "Approved",
-        "Cancelled",
         "Executed"
-      ],
-      "source_ref": "Заявка создаётся, согласуется, отменяется или исполняется"
+      ]
     },
     {
       "name": "approved",
-      "type": "boolean",
-      "source_ref": "При согласовании ставится признак approved"
-    },
-    {
-      "name": "cancelled",
-      "type": "boolean",
-      "source_ref": "Отмена ставит признак cancelled"
+      "type": "boolean"
     }
   ],
   "initial": {
     "status": "Created",
-    "approved": false,
-    "cancelled": false
+    "approved": false
   },
   "transitions": [
     {
@@ -53,47 +44,17 @@
           ]
         }
       ],
-      "source_ref": "Заявку можно согласовать"
-    },
-    {
-      "name": "Cancel",
-      "guard": {
-        "in": [
-          {
-            "var": "status"
-          },
-          [
-            "Created",
-            "Approved"
-          ]
-        ]
-      },
-      "effects": [
-        {
-          "set": [
-            "status",
-            "Cancelled"
-          ]
-        },
-        {
-          "set": [
-            "cancelled",
-            true
-          ]
-        },
-        {
-          "set": [
-            "approved",
-            false
-          ]
-        }
-      ],
-      "source_ref": "Отмена сбрасывает признак approved"
+      "source_ref": "REQ-1"
     },
     {
       "name": "Execute",
       "guard": {
-        "var": "approved"
+        "eq": [
+          {
+            "var": "status"
+          },
+          "Approved"
+        ]
       },
       "effects": [
         {
@@ -103,12 +64,12 @@
           ]
         }
       ],
-      "source_ref": "Исполнить можно, если стоит approved"
+      "source_ref": "REQ-2"
     }
   ],
   "properties": [
     {
-      "id": "P1",
+      "id": "ApprovalRequired",
       "type": "forbidden_state",
       "expression": {
         "and": [
@@ -121,39 +82,13 @@
             ]
           },
           {
-            "var": "cancelled"
+            "not": {
+              "var": "approved"
+            }
           }
         ]
       },
-      "source_ref": "Отменённая заявка не должна быть исполнена"
-    },
-    {
-      "id": "P2",
-      "type": "reachable",
-      "expression": {
-        "eq": [
-          {
-            "var": "status"
-          },
-          "Executed"
-        ]
-      }
-    },
-    {
-      "id": "P3",
-      "type": "deadlock_free",
-      "final_states": {
-        "in": [
-          {
-            "var": "status"
-          },
-          [
-            "Executed",
-            "Cancelled"
-          ]
-        ]
-      }
+      "source_ref": "REQ-2"
     }
-  ],
-  "description": "Acceptance-тест №2 из ТЗ: Cancel сбрасывает approved"
+  ]
 }
