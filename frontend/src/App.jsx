@@ -6,6 +6,7 @@ import InputScreen from './screens/InputScreen'
 import AnalysisScreen from './screens/AnalysisScreen'
 import ReportScreen from './screens/ReportScreen'
 import { api, session } from './api'
+import { chatTitle } from './data'
 import { useHashRoute } from './hooks'
 import './App.css'
 
@@ -171,7 +172,7 @@ export default function App() {
           <select id="chat-select" value={chat?.id || ''} disabled={Boolean(busy)} onChange={(event) => {
             const selected = chats.find((item) => item.id === Number(event.target.value))
             if (selected) action('load', async () => { await loadChat(selected); setText(''); setDeleteId(null); navigate('report') })
-          }}><option value="" disabled>Выберите чат</option>{chats.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
+          }}><option value="" disabled>Выберите чат</option>{chats.map((item) => <option key={item.id} value={item.id}>{chatTitle(item.title)}</option>)}</select>
           <button type="button" className="link-btn" disabled={Boolean(busy)} onClick={() => action('load', async () => { setChats(await api.chats()); if (chat) await loadChat(chat) })}>Обновить</button>
           {chat && (deleteId === chat.id ? <>
             <span>Удалить чат и его историю?</span>

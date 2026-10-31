@@ -18,7 +18,7 @@ const makeRun = (id, status = 'PROPERTY_VIOLATED') => ({
   },
 })
 
-async function mockCore(page, { authenticated = true, sendStatus, noCheck = false, failSend = false, expired = false } = {}) {
+async function mockCore(page, { authenticated = true, sendStatus, noCheck = false, failSend = false, expired = false, answerText } = {}) {
   const state = { chats: [], messages: [], checks: [], sends: 0, registered: false }
   await page.addInitScript((authenticated) => {
     if (authenticated) sessionStorage.setItem('pimo.token', 'test-token')
@@ -53,7 +53,7 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
       state.messages.push(sent)
       state.chats.find((chat) => chat.id === id).title = content.slice(0, 60)
       if (failSend) return reply({ detail: 'Агент не смог ответить. Сообщение сохранено' }, 500)
-      const answer = makeMessage(state.messages.length + 1, 'assistant', noCheck ? 'Уточните условия отмены.' : 'Исполнение возможно после отмены.')
+      const answer = makeMessage(state.messages.length + 1, 'assistant', answerText ?? (noCheck ? 'Уточните условия отмены.' : 'Исполнение возможно после отмены.'))
       state.messages.push(answer)
       const run = noCheck ? null : makeRun(state.sends, sendStatus)
       if (run) state.checks.push(run)
@@ -174,4 +174,42 @@ test('mobile requirements and result remain usable without horizontal overflow',
   await expect(page.getByRole('heading', { name: 'Найдено нарушение' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('mobile-result.png'), fullPage: true })
+})
+
+
+test('agent Markdown renders headings, tables and code safely with an opaque header', async ({ page }, testInfo) => {
+  await mockCore(page, { answerText: [
+    '## Результат: нарушение найдено',
+    '',
+    '**Причина:** признак `approved` не сброшен.',
+    '',
+    '| Шаг | Действие | Состояние |',
+    '| --- | --- | --- |',
+    '| 0 | Заявка создана | Created |',
+    '| 1 | Исполнение | **Executed** |',
+    '',
+    '> Уточните условия отмены.',
+    '',
+    '```json',
+    '{"approved": true}',
+    '```',
+    '',
+    '<script>window.markdownExecuted = true</script>',
+    '[Опасная ссылка](javascript:alert(1))',
+  ].join('\n') })
+  await page.goto('/#/input')
+  await submitRequirements(page)
+  const answer = page.locator('.message-assistant')
+  await expect(answer.getByRole('heading', { name: 'Результат: нарушение найдено' })).toBeVisible()
+  await expect(answer.getByRole('table')).toBeVisible()
+  await expect(answer.getByRole('cell', { name: 'Executed', exact: true })).toBeVisible()
+  await expect(answer.locator('strong').filter({ hasText: 'Причина:' })).toBeVisible()
+  await expect(answer.locator('pre code')).toHaveText('{"approved": true}')
+  await expect(answer.locator('script')).toHaveCount(0)
+  await expect(answer.locator('a')).not.toHaveAttribute('href', /^javascript:/)
+  expect(await page.evaluate(() => window.markdownExecuted)).toBeUndefined()
+  await expect(page.locator('.topbar')).toHaveCSS('background-color', 'rgb(243, 238, 230)')
+  await page.screenshot({ path: testInfo.outputPath('formatted-report.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

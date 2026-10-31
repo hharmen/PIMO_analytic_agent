@@ -25,9 +25,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(243, 238, 230, 0.82);
-  backdrop-filter: saturate(1.4) blur(14px);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  background: var(--paper);
   border-bottom: 1px solid var(--line);
 }
 
@@ -1869,6 +1867,24 @@
 .message-heading { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .message-heading time { font-size: 12px; color: var(--ink-soft); }
 .message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-content { white-space: normal; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 12px; font-size: 18px; line-height: 1.4; }
+.markdown-content :is(h1, h2) { font-size: 21px; }
+.markdown-content p { margin-block: 12px; }
+.markdown-content :is(ul, ol) { padding-left: 24px; }
+.markdown-content li + li { margin-top: 6px; }
+.markdown-content blockquote { margin: 16px 0; padding: 1px 16px; border-left: 3px solid var(--blue-deep); color: var(--ink-soft); }
+.markdown-content code { padding: 2px 5px; border-radius: 4px; background: var(--paper-deep); font-size: 0.9em; }
+.markdown-content pre { max-width: 100%; overflow: auto; padding: 14px; border-radius: 6px; background: var(--paper); white-space: pre; }
+.markdown-content pre code { padding: 0; background: none; }
+.markdown-content a { color: var(--crimson); text-decoration: underline; }
+.markdown-content img { max-width: 100%; height: auto; }
+.markdown-table { max-width: 100%; overflow-x: auto; margin-block: 16px; }
+.markdown-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.markdown-table :is(th, td) { padding: 10px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.markdown-table th { background: var(--paper); font-weight: 600; }
 .check-run h3, .check-run h4 { margin: 0 0 12px; }
 .check-run p { margin-block: 12px; }
 .check-run.status-PROPERTY_HOLDS { border-color: #52745b; }
