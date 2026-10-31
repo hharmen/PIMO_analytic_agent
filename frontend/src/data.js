@@ -1,5 +1,10 @@
 // Последнее сообщение агент обрабатывает в пределах 20 000 символов.
 export const MAX_CHARS = 20000
+// Apply the same display rule to titles of chats created before the API change.
+export function chatTitle(title) {
+  const text = title.replace(/\s+/g, ' ').trim().replace(/^#+\s*/, '')
+  return text.slice(0, 60).split('.')[0].trimEnd() || 'Новый чат'
+}
 export const EXAMPLE_TEXT = 'Заявка создаётся в состоянии Created с approved=false и cancelled=false. Согласование разрешено только для Created: status=Approved, approved=true. Отмена разрешена для Created и Approved: status=Cancelled, cancelled=true; approved не меняется. Исполнение разрешено, если approved=true: status=Executed. Требование: отменённая заявка никогда не должна быть исполнена. Проверь, допускают ли эти правила нарушение, и объясни контрпример.'
 export const CRITERIA = [
   { id: 'invariant', title: 'Инварианты', text: 'Правила, истинные во всех достижимых состояниях', details: 'Проверяем, сохраняются ли обязательные ограничения при любой допустимой последовательности событий.' },

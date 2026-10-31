@@ -1,4 +1,5 @@
-import { CRITERIA, statusLabel } from '../data'
+import { CRITERIA, chatTitle, statusLabel } from '../data'
+import MarkdownMessage from '../components/MarkdownMessage'
 
 function Trace({ trace, title }) {
   if (!trace?.steps?.length) return null
@@ -47,13 +48,15 @@ function CheckRun({ run }) {
 export default function ReportScreen({ chat, messages, checks, onEdit, onRestart, disabled }) {
   return (
     <div className="flow container">
-      <div className="report-main-head"><div><span className="eyebrow">Диалог с агентом</span><h1 className="chat-title">{chat.title}</h1></div><button type="button" className="ghost-btn" disabled={disabled} onClick={onRestart}>Новый чат</button></div>
+      <div className="report-main-head"><div><span className="eyebrow">Диалог с агентом</span><h1 className="chat-title">{chatTitle(chat.title)}</h1></div><button type="button" className="ghost-btn" disabled={disabled} onClick={onRestart}>Новый чат</button></div>
       <div className="conversation-layout">
         <section aria-label="Переписка" className="conversation">
           {!messages.length && <p>В этом чате ещё нет сообщений. Добавьте требования для проверки.</p>}
           {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}>
             <div className="message-heading"><strong>{message.role === 'user' ? 'Вы' : 'Агент-аналитик'}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru-RU')}</time></div>
-            <div className="message-content">{message.content}</div>
+            {message.role === 'assistant'
+              ? <MarkdownMessage>{message.content}</MarkdownMessage>
+              : <div className="message-content">{message.content}</div>}
           </article>)}
           <button type="button" className="primary-btn" disabled={disabled} onClick={onEdit}>Уточнить требования / продолжить</button>
         </section>

@@ -22,6 +22,12 @@ from app.db.session import get_db
 router = APIRouter(prefix="/chats", tags=["chats"], dependencies=[Depends(get_current_user)])
 
 DEFAULT_TITLE = "Новый чат"
+TITLE_LIMIT = 60
+
+
+def make_chat_title(content: str) -> str:
+    text = " ".join(content.split()).lstrip("#").strip()
+    return text[:TITLE_LIMIT].partition(".")[0].rstrip() or DEFAULT_TITLE
 
 
 def get_own_chat(chat_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Chat:
@@ -84,7 +90,7 @@ def send_message(
     user_message = Message(chat_id=chat.id, role="user", content=body.content)
     db.add(user_message)
     if chat.title == DEFAULT_TITLE:  # первое сообщение становится названием чата
-        chat.title = " ".join(body.content.split())[:60]
+        chat.title = make_chat_title(body.content)
     db.flush() 
 
     history = [{"role": m.role, "content": m.content} for m in chat.messages]
