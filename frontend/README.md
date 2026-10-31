@@ -1,16 +1,77 @@
-# React + Vite
+# PIMO — интерфейс агента-аналитика
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite. Интерфейс обращается к Core API; ключ LLM остаётся на сервере.
+Нужен Node.js 22.12+ (или 20.19+).
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Через Docker из корня репозитория:
 
-## React Compiler
+```bash
+docker compose up --build
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Фронтенд доступен на http://localhost:5173. Сборка React обслуживается nginx;
+запросы `/api/*` проксируются в `http://core:8000/*` внутри Docker-сети.
+Локально устанавливать Node.js для Docker-запуска не требуется.
 
-## Expanding the Oxlint configuration
+Для разработки без контейнера фронтенда:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Сначала запустите Core и checker по инструкции в корневом README. Затем:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Откройте http://localhost:5173. Зарегистрируйтесь или войдите, введите требования
+(можно вставить пример) и запустите проверку. Уточнения отправляются в тот же чат;
+кнопка «Новый чат» начинает независимый анализ. В истории можно открыть или удалить чат.
+JWT хранится в sessionStorage текущей вкладки, проверяется через `/auth/me` при загрузке
+и удаляется при выходе или ответе 401. Пароль в браузере не сохраняется.
+
+По умолчанию Vite проксирует `/api/*` в `http://127.0.0.1:8000/*`.
+Для другого адреса скопируйте `.env.example` в `.env` и измените `CORE_API_URL`.
+`VITE_API_URL` задаёт адрес API, доступный браузеру напрямую; при другом origin добавьте
+origin фронтенда в `CORS_ORIGINS` Core. Не помещайте ключи LLM в переменные `VITE_*`.
+
+## Возможности и ограничения
+
+- Реальные ответы `/chats/{id}/messages`, включая уточнения без результата проверки.
+- История переписки и всех проверок `/chats/{id}/checks`, сохраняемая в БД Core.
+- Статусы TLC, свойства, ошибки, ссылки на требования, контрпримеры и пути к цели,
+  статистика, построенная модель и полный результат JSON.
+- TIMEOUT, STATE_LIMIT_REACHED и ошибки не считаются успешной проверкой.
+- Ожидание заканчивается после ответа API. Core не предоставляет поток прогресса,
+  поэтому интерфейс не показывает проценты или завершение отдельных этапов.
+- TXT импортируется в браузере: UTF-8, до 1 МБ и 20 000 символов. Это соответствует
+  пределу последнего сообщения в контексте агента. Текст можно проверить и изменить
+  перед отправкой. PDF/DOCX пока нужно скопировать вручную: File Service из схем
+  ещё не реализован и Core не принимает вложения.
+- При ошибке отправки интерфейс перечитывает историю: Core может сохранить сообщение
+  даже при ошибке LLM. Сетевой сбой не вызывает автоматическую повторную отправку.
+
+## Сборка
+
+```bash
+npm run lint
+npm run build
+npm run preview
+```
+
+`preview` использует тот же proxy. При публикации `dist` настройте reverse proxy
+`/api/*` → Core API с удалением префикса `/api` и таймаутом, достаточным для нескольких
+последовательных вызовов LLM/TLC, либо задайте `VITE_API_URL` перед сборкой.
+
+## Проверка интерфейса
+
+```bash
+npx playwright install chromium  # один раз
+npm test
+```
+
+Playwright запускает Vite и проверяет интерфейс на ответах, соответствующих контракту
+Core API, без обращения к настоящей LLM. Для установленного Chromium/Brave можно задать
+`CHROMIUM_PATH=/путь/к/браузеру npm test`. Тесты Core и агента запускаются отдельно,
+как описано в корневом README.

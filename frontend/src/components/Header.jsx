@@ -31,7 +31,7 @@ export default function Header({ route, onNavigate }) {
       <div className="topbar-inner">
         <button type="button" className="brand" onClick={() => onNavigate('landing')}>
           <span className="brand-mark" aria-hidden="true" />
-          <span className="brand-name">Рискоскоп</span>
+          <span className="brand-name">PIMO</span>
         </button>
 
         {isLanding ? (

@@ -1,4 +1,12 @@
 services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      core:
+        condition: service_started
+
   db:
     image: postgres:17-alpine
     environment:

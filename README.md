@@ -16,6 +16,9 @@ cp .env.example .env        # вписать LLM_API_KEY
 docker compose up --build
 ```
 
+Фронтенд: http://localhost:5173. Compose собирает интерфейс и запускает nginx,
+который передаёт запросы `/api/*` в Core внутри Docker-сети. Локальный Node.js не нужен.
+
 Нужен файл сертификата `core/certs/api-ai.mai.ru.pem` (лежит в репозитории, как обновить - ниже).
 
 Проверить агента из консоли внутри контейнера:
@@ -39,13 +42,20 @@ set -a; source ../.env; set +a
 python -m uvicorn app.main:app --port 8000
 ```
 
-Агент без фронта и Core API:
+
+## Фронтенд
+
+После запуска Core и checker:
 
 ```bash
-cd core && set -a; source ../.env; set +a
-python -m app.agent.cli --models                       # модели, доступные по ключу
-python -m app.agent.cli --show-model "текст требований"
+cd frontend
+npm ci
+npm run dev
 ```
+
+Откройте http://localhost:5173, зарегистрируйтесь и отправьте требования агенту.
+Чаты и результаты проверок сохраняются через Core API. Настройка адресов и ограничения
+импорта документов описаны в [frontend/README.md](frontend/README.md).
 
 ## Сертификат api-ai.mai.ru
 

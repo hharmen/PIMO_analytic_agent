@@ -1,86 +1,66 @@
-import { useCountUp } from '../hooks'
-import { ArrowLeftIcon } from '../components/Icons'
-import { LEVEL_LABEL } from '../data'
+import { CRITERIA, statusLabel } from '../data'
 
-function ScoreCard({ score, risks }) {
-  const value = useCountUp(score, { decimals: 1, duration: 1400 })
-  const counts = risks.reduce((acc, risk) => ({ ...acc, [risk.level]: (acc[risk.level] ?? 0) + 1 }), {})
+function Trace({ trace, title }) {
+  if (!trace?.steps?.length) return null
+  return <div className="trace"><h4>{title}</h4><ol>{trace.steps.map((step, index) => (
+    <li key={index}><strong>{step.number}. {step.transition || 'Начальное состояние'}</strong><pre>{JSON.stringify(step.state, null, 2)}</pre></li>
+  ))}</ol></div>
+}
 
+function Issues({ issues }) {
+  if (!issues?.length) return null
+  return <ul className="check-issues">{issues.map((issue, index) => <li key={index}>{issue.path && <code>{issue.path}: </code>}{issue.message}</li>)}</ul>
+}
+
+function CheckRun({ run }) {
+  const result = run.result_json
   return (
-    <div className="score-card">
-      <span className="score-card-label">Общий уровень риска</span>
-      <span className="score-card-value">
-        {value.toLocaleString('ru-RU', { minimumFractionDigits: 1 })}
-        <small>/10</small>
-      </span>
-      <div className="score-bar" aria-hidden="true">
-        {Array.from({ length: 10 }, (_, i) => (
-          <span key={i} className={i < Math.round(score) ? 'is-filled' : ''} style={{ '--i': i }} />
-        ))}
-      </div>
-      <dl className="score-counts">
-        {['high', 'medium', 'low'].map((level) => (
-          <div key={level}>
-            <dt>{LEVEL_LABEL[level]}</dt>
-            <dd>{counts[level] ?? 0}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <article className={`check-run status-${run.status}`}>
+      <div className="report-main-head"><h3>{statusLabel(run.status)}</h3><span>Проверка #{run.id}</span></div>
+      <p className="submit-note">{new Date(run.created_at).toLocaleString('ru-RU')} · Движок: {result.engine || 'TLC'}</p>
+      {run.status === 'PROPERTY_HOLDS'
+        ? <p>Свойства выполнены в исследованной конечной модели при заданных ограничениях. Это не доказывает корректность реальной системы.</p>
+        : <p>{run.status === 'PROPERTY_VIOLATED' ? 'Проверка обнаружила нарушение свойства. Изучите сценарий и объяснение агента.' : 'Успешная проверка всех свойств не подтверждена. Изучите детали результата.'}</p>}
+      <Issues issues={result.errors} />
+      {(result.results || []).map((property) => {
+        const properties = Array.isArray(run.model_json.properties) ? run.model_json.properties : []
+        const definition = properties.find((item) => item?.id === property.property_id)
+        return <section className={`property-result status-${property.status}`} key={property.property_id}>
+          <h4>{property.property_id} · {CRITERIA.find((item) => item.id === property.property_type)?.title || property.property_type}</h4>
+          <p><strong>{statusLabel(property.status)}</strong></p>
+          {definition?.description && <p>{definition.description}</p>}
+          <p>{property.message}</p>
+          {property.related_requirements?.length > 0 && <div><strong>Связанные требования</strong><ul>{property.related_requirements.map((text, index) => <li key={index}>{text}</li>)}</ul></div>}
+          <Issues issues={property.errors} />
+          <Trace trace={property.counterexample} title="Контрпример: путь к нарушению" />
+          <Trace trace={property.witness} title="Пример пути к цели" />
+          {property.statistics && <dl className="check-statistics">{Object.entries(property.statistics).filter(([, value]) => value !== null).map(([key, value]) => <div key={key}><dt>{({ states_generated: 'Сгенерировано состояний', distinct_states: 'Уникальных состояний', depth: 'Глубина' })[key] || key}</dt><dd>{value}</dd></div>)}</dl>}
+          {property.engine_output && <details><summary>Вывод движка</summary><pre>{property.engine_output}</pre></details>}
+        </section>
+      })}
+      <details><summary>Построенная модель JSON</summary><pre>{JSON.stringify(run.model_json, null, 2)}</pre></details>
+      <details><summary>Полный результат проверки JSON</summary><pre>{JSON.stringify(result, null, 2)}</pre></details>
+    </article>
   )
 }
 
-export default function ReportScreen({ report, onEdit, onRestart }) {
+export default function ReportScreen({ chat, messages, checks, onEdit, onRestart, disabled }) {
   return (
     <div className="flow container">
-      <button type="button" className="back-btn stagger" style={{ '--i': 0 }} onClick={onEdit}>
-        <ArrowLeftIcon />
-        Изменить описание
-      </button>
-
-      <div className="report-layout">
-        <aside className="report-aside">
-          <span className="eyebrow stagger" style={{ '--i': 1 }}>
-            Шаг 03
-          </span>
-          <h1 className="flow-title stagger" style={{ '--i': 2 }}>
-            Результаты
-            <br />
-            анализа
-          </h1>
-          <div className="stagger" style={{ '--i': 3 }}>
-            <ScoreCard score={report.score} risks={report.risks} />
-          </div>
-          <p className="report-summary stagger" style={{ '--i': 4 }}>
-            {report.summary}
-          </p>
-          <button type="button" className="primary-btn stagger" style={{ '--i': 5 }} onClick={onRestart}>
-            <span>Новая проверка</span>
-          </button>
-        </aside>
-
-        <section className="report-main">
-          <div className="report-main-head stagger" style={{ '--i': 2 }}>
-            <h2>Найденные риски</h2>
-            <span>{report.risks.length} пункта</span>
-          </div>
-          <ol className="risk-list">
-            {report.risks.map((risk, index) => (
-              <li key={risk.title} className={`risk-card risk-${risk.level} stagger`} style={{ '--i': index + 3 }}>
-                <div className="risk-card-top">
-                  <span className="risk-index">{String(index + 1).padStart(2, '0')}/</span>
-                  <span className={`level level-${risk.level}`}>{LEVEL_LABEL[risk.level]}</span>
-                  <span className="risk-area">{risk.area}</span>
-                </div>
-                <h3>{risk.title}</h3>
-                <p>{risk.text}</p>
-                <div className="risk-advice">
-                  <span>Рекомендация</span>
-                  <p>{risk.advice}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+      <div className="report-main-head"><div><span className="eyebrow">Диалог с агентом</span><h1 className="chat-title">{chat.title}</h1></div><button type="button" className="ghost-btn" disabled={disabled} onClick={onRestart}>Новый чат</button></div>
+      <div className="conversation-layout">
+        <section aria-label="Переписка" className="conversation">
+          {!messages.length && <p>В этом чате ещё нет сообщений. Добавьте требования для проверки.</p>}
+          {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}>
+            <div className="message-heading"><strong>{message.role === 'user' ? 'Вы' : 'Агент-аналитик'}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru-RU')}</time></div>
+            <div className="message-content">{message.content}</div>
+          </article>)}
+          <button type="button" className="primary-btn" disabled={disabled} onClick={onEdit}>Уточнить требования / продолжить</button>
+        </section>
+        <section aria-label="История проверок" className="checks">
+          <h2>История проверок · {checks.length}</h2>
+          {!checks.length && <p className="empty-state">Проверок пока нет. Агент может запросить уточнение или сообщить о недоступности проверки. Ответ без результата TLC не означает, что свойства выполнены.</p>}
+          {[...checks].reverse().map((run) => <CheckRun key={run.id} run={run} />)}
         </section>
       </div>
     </div>

@@ -4,23 +4,23 @@ import { CRITERIA } from '../data'
 
 const HOW_STEPS = [
   {
-    title: 'Опишите проект',
-    text: 'Вставьте текст бизнес-плана или загрузите документ в формате PDF, DOCX или TXT.',
+    title: 'Опишите требования',
+    text: 'Вставьте описание поведения системы или импортируйте текст из TXT.',
   },
   {
     title: 'Дождитесь анализа',
-    text: 'Сервис разберёт план по четырём направлениям и найдёт слабые допущения.',
+    text: 'LLM построит модель состояний и переходов, а TLC проверит её свойства.',
   },
   {
     title: 'Получите отчёт',
-    text: 'Риски с оценкой критичности и конкретные рекомендации, что доработать.',
+    text: 'Объяснение агента, результат проверки и путь к нарушению, если оно найдено.',
   },
 ]
 
 const FACTS = [
-  { value: '4', label: 'направления анализа' },
-  { value: '~1', label: 'минута на проверку' },
-  { value: '3', label: 'формата документов' },
+  { value: '4', label: 'типа проверяемых свойств' },
+  { value: 'TLC', label: 'детерминированный движок' },
+  { value: 'LLM', label: 'интерпретация требований' },
 ]
 
 const PREVIEW_LINES = [
@@ -47,7 +47,7 @@ function HeroPreview() {
       <div className="preview-sheet">
         <div className="preview-head">
           <span className="preview-dot" />
-          <span className="preview-label">business-plan.pdf</span>
+          <span className="preview-label">requirements.txt</span>
         </div>
         <div className="preview-lines">
           {PREVIEW_LINES.map((line, i) =>
@@ -66,17 +66,17 @@ function HeroPreview() {
       </div>
 
       <div className="preview-note preview-note-1">
-        <span className="level level-high">Высокий</span>
-        <span>Не учтена стоимость привлечения</span>
+        <span className="level level-high">Нарушение</span>
+        <span>Исполнение после отмены</span>
       </div>
       <div className="preview-note preview-note-2">
-        <span className="level level-medium">Средний</span>
-        <span>Слабое отличие от конкурентов</span>
+        <span className="level level-medium">Сценарий</span>
+        <span>Approve → Cancel → Execute</span>
       </div>
       <div className="preview-score">
-        <span className="preview-score-label">Уровень риска</span>
+        <span className="preview-score-label">Пример проверки</span>
         <span className="preview-score-value">
-          6,4<span>/10</span>
+          P1<span> · нарушено</span>
         </span>
       </div>
     </div>
@@ -89,22 +89,22 @@ export default function Landing({ onStart }) {
       <section className="hero container">
         <div className="hero-copy">
           <span className="eyebrow hero-in" style={{ '--d': '0ms' }}>
-            Анализ бизнес-плана
+            Проверка логики требований
           </span>
           <h1 className="hero-title">
             <span className="line">
-              <span style={{ '--d': '80ms' }}>Найдите слабые</span>
+              <span style={{ '--d': '80ms' }}>Найдите ошибки</span>
             </span>
             <span className="line">
-              <span style={{ '--d': '160ms' }}>места плана</span>
+              <span style={{ '--d': '160ms' }}>в требованиях</span>
             </span>
             <span className="line">
-              <em style={{ '--d': '240ms' }}>до запуска</em>
+              <em style={{ '--d': '240ms' }}>до разработки</em>
             </span>
           </h1>
           <p className="hero-lead hero-in" style={{ '--d': '420ms' }}>
-            Рискоскоп разбирает бизнес-план по четырём направлениям, оценивает
-            критичность рисков и подсказывает, что доработать.
+            PIMO превращает описание поведения системы в формальную модель,
+            проверяет её свойства и объясняет найденные противоречия.
           </p>
           <div className="hero-actions hero-in" style={{ '--d': '520ms' }}>
             <StartButton onClick={onStart} />
@@ -155,9 +155,9 @@ export default function Landing({ onStart }) {
             <h2>
               Четыре
               <br />
-              направления
+              типа
               <br />
-              анализа
+              свойств
             </h2>
           </Reveal>
           <ul className="criteria-rows">
@@ -176,8 +176,8 @@ export default function Landing({ onStart }) {
 
       <section className="container">
         <Reveal className="cta-band">
-          <h2>Проверьте свой бизнес&#8209;план</h2>
-          <p>Это займёт около минуты. Регистрация не нужна.</p>
+          <h2>Проверьте логику требований</h2>
+          <p>Войдите в аккаунт, чтобы сохранить переписку и результаты проверок.</p>
           <StartButton onClick={onStart} />
         </Reveal>
       </section>
