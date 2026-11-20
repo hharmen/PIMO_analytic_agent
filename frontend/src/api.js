@@ -91,3 +91,10 @@ export const api = {
   checks: (id) => request(`/chats/${id}/checks`),
   send: (id, content) => request(`/chats/${id}/messages`, { method: 'POST', body: { content } }),
 }
+
+export const adminApi = {
+  summary: () => request('/admin/summary'),
+  users: (params) => request(`/admin/users?${new URLSearchParams(params)}`),
+  setActive: (id, is_active) => request(`/admin/users/${id}`, { method: 'PATCH', body: { is_active } }),
+  audit: (params) => request(`/admin/audit?${new URLSearchParams(params)}`),
+}

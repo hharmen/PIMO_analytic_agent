@@ -10,6 +10,8 @@ EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 class Credentials(BaseModel):
     """Тело запроса для регистрации и логина."""
 
+    model_config = ConfigDict(extra="forbid")
+
     email: str = Field(max_length=255, pattern=EMAIL_PATTERN, examples=["user@example.com"])
     password: str = Field(min_length=8, max_length=72, examples=["my-secret-password"])
 
@@ -32,6 +34,8 @@ class UserOut(BaseModel):
     id: int
     email: str
     created_at: datetime
+    is_admin: bool
+    is_active: bool
 
 
 class TokenOut(BaseModel):

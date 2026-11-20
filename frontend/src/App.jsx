@@ -7,11 +7,12 @@ import AnalysisScreen from './screens/AnalysisScreen'
 import ReportScreen from './screens/ReportScreen'
 import ChatScreen from './screens/ChatScreen'
 import ChatSidebar from './components/ChatSidebar'
+import AdminScreen from './screens/AdminScreen'
 import { api, session } from './api'
 import { useHashRoute } from './hooks'
 import './App.css'
 
-const ROUTES = ['landing', 'input', 'analysis', 'chat', 'report']
+const ROUTES = ['landing', 'input', 'analysis', 'chat', 'report', 'admin']
 const CHAT_KEY = 'pimo.chat'
 const MESSAGE_KEY = 'pimo.message'
 const RECOVERY_KEY = 'pimo.session-recovery'
@@ -69,17 +70,18 @@ export default function App() {
     setUser(null); setChats([]); resetChat(); setDeleteId(null)
     drafts.current = {}
     lock.current = false; setBusy('')
-    const message = code === 'token_expired' ? 'Сессия истекла. Войдите снова.' : 'Сессия недействительна. Войдите снова.'
+    const message = code === 'account_blocked' ? 'Аккаунт заблокирован. Обратитесь к администратору.'
+      : code === 'token_expired' ? 'Сессия истекла. Войдите снова.' : 'Сессия недействительна. Войдите снова.'
     setError(message + (recovery.text ? ' Черновик сохранён и восстановится после входа в тот же аккаунт.' : ''))
     navigate('input', { replace: true })
   }, [user, chat, text, resetChat, navigate])
 
-  function handleError(err) {
+  const handleError = useCallback((err) => {
     if (err.code === 'session_changed') return
     if (err.status === 401) {
-      expireSession(err.code === 'token_expired' || /истекла/i.test(err.message) ? 'token_expired' : 'invalid_token')
+      expireSession(err.code || (/истекла/i.test(err.message) ? 'token_expired' : 'invalid_token'))
     } else setError(err.message)
-  }
+  }, [expireSession])
 
   useEffect(() => {
     if (!user) return undefined
@@ -98,7 +100,11 @@ export default function App() {
     async function revalidate() {
       if (document.hidden || checkExpiry() || checking) return
       checking = true
-      try { await api.me() }
+      try {
+        const currentUser = await api.me()
+        if (active) setUser((previous) => previous?.id === currentUser.id && previous?.is_admin === currentUser.is_admin
+          && previous?.is_active === currentUser.is_active ? previous : currentUser)
+      }
       catch (err) { if (active && err.status === 401) expireSession(err.code) }
       finally { checking = false }
     }
@@ -147,7 +153,7 @@ export default function App() {
           setChat(selected); setMessages(history); setChecks(runs)
           const messageId = Number(sessionStorage.getItem(MESSAGE_KEY))
           setSelectedMessageId(history.some((message) => message.id === messageId) ? messageId : null)
-          if (route !== 'landing') navigate(route === 'report' ? 'report' : 'chat', { replace: true })
+          if (route !== 'landing' && route !== 'admin') navigate(route === 'report' ? 'report' : 'chat', { replace: true })
         }
       } catch (err) { if (active && epoch === authEpoch.current) handleError(err) }
       finally {
@@ -289,12 +295,12 @@ export default function App() {
   }
 
   const screen = busy === 'send' ? (messages.length ? 'chat' : 'analysis') : route
-  const workspace = screen !== 'landing' && Boolean(user)
+  const workspace = screen !== 'landing' && screen !== 'admin' && Boolean(user)
   useEffect(() => { window.scrollTo(0, 0) }, [screen])
   return (
     <div className="app">
       <Header route={screen} onNavigate={(next) => { if (!lock.current) navigate(next) }} />
-      {user && <div className="account-bar container"><span>{user.email}</span><button className="link-btn" type="button" onClick={logout} disabled={Boolean(busy)}>Выйти</button></div>}
+      {user && <div className="account-bar container"><span>{user.email}</span>{user.is_admin && <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => navigate(screen === 'admin' ? (chat ? 'chat' : 'input') : 'admin')}>{screen === 'admin' ? 'К моим чатам' : 'Админ-панель'}</button>}<button className="link-btn" type="button" onClick={logout} disabled={Boolean(busy)}>Выйти</button></div>}
       {error && <div className="error-message container" role="alert">{error}</div>}
       {!ready ? <main className="flow container" role="status">Восстанавливаем сессию…</main> : <>
         <div className={workspace ? 'workspace container' : 'screen-shell'}>
@@ -303,6 +309,7 @@ export default function App() {
           {busy === 'load' && <p className="workspace-loading" role="status">Загружаем историю…</p>}
           {screen === 'landing' ? <Landing onStart={() => navigate('input')} />
             : !user ? <AuthScreen onAuthenticate={authenticate} busy={Boolean(busy)} />
+              : screen === 'admin' ? (user.is_admin ? <AdminScreen onAuthError={handleError} /> : <section className="flow container"><h1>Доступ запрещён</h1><p>Панель доступна только администраторам.</p><button type="button" className="ghost-btn" onClick={() => navigate(chat ? 'chat' : 'input')}>К моим чатам</button></section>)
               : screen === 'analysis' && busy === 'send' ? <AnalysisScreen />
                 : screen === 'chat' && chat ? <ChatScreen chat={chat} messages={messages} checks={checks} text={text} onTextChange={updateText} onSubmit={send} onOpenMessage={openMessage} onOpenChecks={() => openMessage(null)} onRefresh={refreshChats} onDelete={deleteChat} deletePending={deleteId === chat.id} onCancelDelete={() => setDeleteId(null)} disabled={Boolean(busy)} sending={busy === 'send'} needsRefresh={needsRefresh} loading={busy === 'load'} />
                   : screen === 'report' && chat ? <ReportScreen chat={chat} messages={messages} checks={checks} selectedMessageId={selectedMessageId} onBack={() => navigate('chat')} disabled={Boolean(busy)} />
