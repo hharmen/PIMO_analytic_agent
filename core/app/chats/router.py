@@ -16,7 +16,7 @@ from app.chats.schemas import (
     SendMessageOut,
 )
 from app.clients.checker_client import CheckerError, check_model
-from app.db.models import Chat, CheckRun, Message, User
+from app.db.models import Chat, CheckRun, Message, UploadedFile, User
 from app.db.session import get_db
 
 router = APIRouter(prefix="/chats", tags=["chats"], dependencies=[Depends(get_current_user)])
@@ -87,7 +87,11 @@ def send_message(
 
     Ответ возвращается сразу целиком (без потоковой передачи).
     """
-    user_message = Message(chat_id=chat.id, role="user", content=body.content)
+    if body.file_id is not None:
+        attached = db.get(UploadedFile, body.file_id)
+        if attached is None or attached.user_id != chat.user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    user_message = Message(chat_id=chat.id, role="user", content=body.content, file_id=body.file_id)
     db.add(user_message)
     if chat.title == DEFAULT_TITLE:  # первое сообщение становится названием чата
         chat.title = make_chat_title(body.content)

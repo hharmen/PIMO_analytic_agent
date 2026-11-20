@@ -20,6 +20,7 @@ class ChatOut(BaseModel):
 
 class MessageCreate(BaseModel):
     content: str = Field(max_length=50_000, description="Текст сообщения (например, требования)")
+    file_id: int | None = Field(None, description="Файл из POST /files, из которого взят текст (необязательно)")
 
     @field_validator("content")
     @classmethod
@@ -35,7 +36,15 @@ class MessageOut(BaseModel):
     id: int
     role: Literal["user", "assistant"]
     content: str
+    file: "MessageFile | None" = Field(None, description="Файл, из которого взят текст; null, если текст набран вручную")
     created_at: datetime
+
+
+class MessageFile(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
 
 
 class SendMessageOut(BaseModel):
@@ -66,4 +75,5 @@ class CheckRunOut(BaseModel):
     created_at: datetime
 
 
+MessageOut.model_rebuild()
 SendMessageOut.model_rebuild()

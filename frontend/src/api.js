@@ -40,8 +40,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(path, { method = 'GET', body, token = session.get() } = {}) {
+export async function request(path, { method = 'GET', body, token = session.get(), asBlob = false } = {}) {
   const version = sessionVersion
+  // FormData (загрузка файла): Content-Type с границей частей браузер ставит сам
+  const isForm = body instanceof FormData
   const controller = new AbortController()
   if (token) activeRequests.add(controller)
   const assertCurrentSession = () => {
@@ -54,10 +56,10 @@ export async function request(path, { method = 'GET', body, token = session.get(
         method,
         signal: controller.signal,
         headers: {
-          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        ...(body !== undefined ? { body: isForm ? body : JSON.stringify(body) } : {}),
       })
     } catch {
       assertCurrentSession()
@@ -65,6 +67,11 @@ export async function request(path, { method = 'GET', body, token = session.get(
     }
     assertCurrentSession()
     if (response.status === 204) return null
+    if (asBlob && response.ok) {
+      const blob = await response.blob()
+      assertCurrentSession()
+      return blob
+    }
     const data = await response.json().catch(() => null)
     assertCurrentSession()
     if (!response.ok) {
@@ -89,7 +96,23 @@ export const api = {
   deleteChat: (id) => request(`/chats/${id}`, { method: 'DELETE' }),
   messages: (id) => request(`/chats/${id}/messages`),
   checks: (id) => request(`/chats/${id}/checks`),
-  send: (id, content) => request(`/chats/${id}/messages`, { method: 'POST', body: { content } }),
+  send: (id, content, fileId = null) => request(`/chats/${id}/messages`, { method: 'POST', body: { content, file_id: fileId } }),
+  uploadFile: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request('/files', { method: 'POST', body: form })
+  },
+}
+
+// Скачать исходный файл. Нужен заголовок с токеном, поэтому через fetch, а не обычной ссылкой
+export async function downloadFile(id, filename) {
+  const blob = await request(`/files/${id}/download`, { asBlob: true })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export const adminApi = {

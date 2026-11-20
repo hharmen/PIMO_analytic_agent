@@ -6,6 +6,7 @@ APP_ENV = os.environ.get("APP_ENV", "dev")
 
 CHECKER_URL = os.environ.get("CHECKER_URL", "http://localhost:8001")
 FILE_SERVICE_URL = os.environ.get("FILE_SERVICE_URL", "http://localhost:8002")
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "10"))  # совпадает с MAX_FILE_MB в File Service
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 

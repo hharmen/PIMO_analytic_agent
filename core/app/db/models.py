@@ -39,6 +39,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
 
     chats: Mapped[list["Chat"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    files: Mapped[list["UploadedFile"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Chat(Base):
@@ -65,9 +66,12 @@ class Message(Base):
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id"), index=True)
     role: Mapped[str] = mapped_column(String(20))  # "user" или "assistant"
     content: Mapped[str] = mapped_column(Text)
+    # файл, из которого взят текст сообщения (если требования пришли файлом)
+    file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
+    file: Mapped["UploadedFile | None"] = relationship()
 
 
 class CheckRun(Base):
@@ -97,3 +101,20 @@ class AdminAudit(Base):
     target_email: Mapped[str] = mapped_column(String(255))
     action: Mapped[str] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+
+
+class UploadedFile(Base):
+    """Файл, загруженный пользователем. Сам файл и текст лежат в File Service (S3), здесь - чей он."""
+
+    __tablename__ = "files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    storage_id: Mapped[str] = mapped_column(String(64))  # id в File Service
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(120))
+    size: Mapped[int]
+    chars: Mapped[int]  # длина извлечённого текста
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+
+    user: Mapped[User] = relationship(back_populates="files")

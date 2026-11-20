@@ -1,5 +1,8 @@
 // Последнее сообщение агент обрабатывает в пределах 20 000 символов.
 export const MAX_CHARS = 20000
+// Импорт файлов: текст извлекает File Service на сервере
+export const FILE_TYPES = ['.txt', '.md', '.docx', '.pdf', '.png', '.jpg', '.jpeg']
+export const MAX_FILE_MB = 10
 // Apply the same display rule to titles of chats created before the API change.
 export function chatTitle(title) {
   const text = title.replace(/\s+/g, ' ').trim().replace(/^#+\s*/, '')

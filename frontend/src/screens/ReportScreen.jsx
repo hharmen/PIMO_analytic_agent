@@ -47,7 +47,7 @@ function CheckRun({ run }) {
   )
 }
 
-export default function ReportScreen({ chat, messages, checks, selectedMessageId, onBack, disabled }) {
+export default function ReportScreen({ chat, messages, checks, selectedMessageId, onDownloadFile, onBack, disabled }) {
   const selected = messages.find((message) => message.id === selectedMessageId)
   const previousUser = selected?.role === 'assistant'
     ? messages.slice(0, messages.indexOf(selected)).findLast((message) => message.role === 'user') : null
@@ -61,6 +61,7 @@ export default function ReportScreen({ chat, messages, checks, selectedMessageId
         {selected && <section aria-label="Полный текст сообщения" className="conversation">
           {visibleMessages.map((message) => <article className={`message message-${message.role}`} key={message.id}>
             <div className="message-heading"><strong>{message.role === 'user' ? 'Вы' : 'Агент-аналитик'}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru-RU')}</time></div>
+            {message.file && <p className="message-file">Требования из файла «{message.file.filename}» <button type="button" className="link-btn" disabled={disabled} onClick={() => onDownloadFile(message.file)}>Скачать</button></p>}
             {message.role === 'assistant'
               ? <MarkdownMessage>{message.content}</MarkdownMessage>
               : <div className="message-content">{message.content}</div>}

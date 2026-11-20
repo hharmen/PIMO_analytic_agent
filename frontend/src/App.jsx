@@ -8,7 +8,7 @@ import ReportScreen from './screens/ReportScreen'
 import ChatScreen from './screens/ChatScreen'
 import ChatSidebar from './components/ChatSidebar'
 import AdminScreen from './screens/AdminScreen'
-import { api, session } from './api'
+import { api, downloadFile, session } from './api'
 import { useHashRoute } from './hooks'
 import './App.css'
 
@@ -28,6 +28,8 @@ export default function App() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [text, setText] = useState('')
+  // файл, из которого взят текст в поле: уйдёт вместе с сообщением и будет виден в истории
+  const [attachedFile, setAttachedFile] = useState(null)
   const [chats, setChats] = useState([])
   const [chat, setChat] = useState(null)
   const [messages, setMessages] = useState([])
@@ -67,7 +69,7 @@ export default function App() {
     else sessionStorage.removeItem(RECOVERY_KEY)
     authEpoch.current++
     session.clear()
-    setUser(null); setChats([]); resetChat(); setDeleteId(null)
+    setUser(null); setChats([]); resetChat(); setDeleteId(null); setAttachedFile(null)
     drafts.current = {}
     lock.current = false; setBusy('')
     const message = code === 'account_blocked' ? 'Аккаунт заблокирован. Обратитесь к администратору.'
@@ -218,13 +220,13 @@ export default function App() {
 
   function startNew() {
     if (lock.current) return
-    resetChat(); setText(''); setError(''); setDeleteId(null)
+    resetChat(); setText(''); setAttachedFile(null); setError(''); setDeleteId(null)
     navigate('input')
   }
 
   function logout() {
     if (lock.current) return
-    session.clear(); setUser(null); setChats([]); resetChat(); setText(''); setError('')
+    session.clear(); setUser(null); setChats([]); resetChat(); setText(''); setAttachedFile(null); setError('')
     drafts.current = {}
     sessionStorage.removeItem(RECOVERY_KEY)
     navigate('landing')
@@ -242,11 +244,12 @@ export default function App() {
       }
       navigate('analysis')
       try {
-        const reply = await api.send(selected.id, text.trim())
+        const reply = await api.send(selected.id, text.trim(), attachedFile?.id ?? null)
         setMessages((history) => [...history, reply.user_message, reply.assistant_message])
         if (reply.check_run) setChecks((history) => [...history, reply.check_run])
         delete drafts.current[selected.id]
         setText('')
+        setAttachedFile(null)
         navigate('chat', { replace: true })
         const list = await api.chats()
         setChats(list)
@@ -266,6 +269,18 @@ export default function App() {
     })
   }
 
+  async function importFile(file) {
+    setAttachedFile(null)
+    try {
+      const uploaded = await api.uploadFile(file)
+      setAttachedFile(uploaded)
+      return uploaded
+    } catch (err) {
+      if (err.status === 401) handleError(err)
+      throw err
+    }
+  }
+
   function openMessage(messageId) {
     if (lock.current) return
     setSelectedMessageId(messageId)
@@ -277,7 +292,7 @@ export default function App() {
 
   function selectChat(selected) {
     if (selected.id === chat?.id) { navigate('chat'); return }
-    action('load', async () => { await loadChat(selected); setText(drafts.current[selected.id] || ''); setDeleteId(null); navigate('chat') })
+    action('load', async () => { await loadChat(selected); setText(drafts.current[selected.id] || ''); setAttachedFile(null); setDeleteId(null); navigate('chat') })
   }
 
   function refreshChats() {
@@ -290,7 +305,7 @@ export default function App() {
       await api.deleteChat(chat.id)
       delete drafts.current[chat.id]
       setChats((list) => list.filter((item) => item.id !== chat.id))
-      resetChat(); setText(''); setDeleteId(null); navigate('input')
+      resetChat(); setText(''); setAttachedFile(null); setDeleteId(null); navigate('input')
     })
   }
 
@@ -311,9 +326,9 @@ export default function App() {
             : !user ? <AuthScreen onAuthenticate={authenticate} busy={Boolean(busy)} />
               : screen === 'admin' ? (user.is_admin ? <AdminScreen onAuthError={handleError} /> : <section className="flow container"><h1>Доступ запрещён</h1><p>Панель доступна только администраторам.</p><button type="button" className="ghost-btn" onClick={() => navigate(chat ? 'chat' : 'input')}>К моим чатам</button></section>)
               : screen === 'analysis' && busy === 'send' ? <AnalysisScreen />
-                : screen === 'chat' && chat ? <ChatScreen chat={chat} messages={messages} checks={checks} text={text} onTextChange={updateText} onSubmit={send} onOpenMessage={openMessage} onOpenChecks={() => openMessage(null)} onRefresh={refreshChats} onDelete={deleteChat} deletePending={deleteId === chat.id} onCancelDelete={() => setDeleteId(null)} disabled={Boolean(busy)} sending={busy === 'send'} needsRefresh={needsRefresh} loading={busy === 'load'} />
-                  : screen === 'report' && chat ? <ReportScreen chat={chat} messages={messages} checks={checks} selectedMessageId={selectedMessageId} onBack={() => navigate('chat')} disabled={Boolean(busy)} />
-                    : <InputScreen disabled={Boolean(busy) || needsRefresh} text={text} onTextChange={setText} onSubmit={send} continuing={Boolean(chat)} onBack={() => { if (!lock.current) navigate(chat ? 'chat' : 'landing') }} />}
+                : screen === 'chat' && chat ? <ChatScreen chat={chat} messages={messages} checks={checks} text={text} onTextChange={updateText} onSubmit={send} onImportFile={importFile} attachedFile={attachedFile} onDetachFile={() => setAttachedFile(null)} onOpenMessage={openMessage} onOpenChecks={() => openMessage(null)} onRefresh={refreshChats} onDelete={deleteChat} deletePending={deleteId === chat.id} onCancelDelete={() => setDeleteId(null)} disabled={Boolean(busy)} sending={busy === 'send'} needsRefresh={needsRefresh} loading={busy === 'load'} />
+                  : screen === 'report' && chat ? <ReportScreen chat={chat} messages={messages} checks={checks} selectedMessageId={selectedMessageId} onDownloadFile={(file) => action('download', () => downloadFile(file.id, file.filename))} onBack={() => navigate('chat')} disabled={Boolean(busy)} />
+                    : <InputScreen disabled={Boolean(busy) || needsRefresh} text={text} onTextChange={setText} onSubmit={send} onImportFile={importFile} attachedFile={attachedFile} onDetachFile={() => setAttachedFile(null)} continuing={Boolean(chat)} onBack={() => { if (!lock.current) navigate(chat ? 'chat' : 'landing') }} />}
         </main>
         </div>
       </>}
