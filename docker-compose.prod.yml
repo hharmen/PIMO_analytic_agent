@@ -1,0 +1,70 @@
+# Запуск на сервере: поверх обычного docker-compose.yml.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up -d --build
+# Отличия от локального запуска:
+#   - наружу открыт только Caddy (80/443, HTTPS), остальные сервисы видны только внутри Docker-сети;
+#   - пароли БД и MinIO, JWT_SECRET - из .env (шаблон deploy/.env.example);
+#   - сервисы перезапускаются после сбоя и перезагрузки сервера;
+#   - у каждого контейнера лимит памяти: при перерасходе ядро остановит наш контейнер,
+#     а не соседние процессы на сервере (у нас там VPN). Пики замерены на демо-сценариях.
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    mem_limit: 100m
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?задайте SITE_ADDRESS в .env}
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+    ports:
+      - "80:80"
+      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data   # сертификаты: без тома Caddy запрашивал бы их при каждом перезапуске
+    depends_on:
+      - frontend
+
+  frontend:
+    restart: unless-stopped
+    mem_limit: 64m
+    ports: !reset []
+
+  db:
+    restart: unless-stopped
+    mem_limit: 200m
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+
+  checker:
+    restart: unless-stopped
+    mem_limit: 450m
+    environment:
+      # TLC на наших моделях берёт ~100 МБ; 1 ГБ по умолчанию больше памяти маленького сервера
+      JAVA_OPTS: -XX:+UseParallelGC -Xmx256m
+    ports: !reset []
+
+  minio:
+    restart: unless-stopped
+    mem_limit: 350m
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?задайте MINIO_PASSWORD в .env}
+    ports: !reset []
+
+  file_service:
+    restart: unless-stopped
+    mem_limit: 300m
+    environment:
+      S3_SECRET_KEY: ${MINIO_PASSWORD}
+    ports: !reset []
+
+  core:
+    restart: unless-stopped
+    mem_limit: 250m
+    environment:
+      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env (openssl rand -hex 32)}
+      DATABASE_URL: postgresql+psycopg://pimo:${POSTGRES_PASSWORD}@db:5432/pimo
+    ports: !reset []
+
+volumes:
+  caddy_data:

@@ -1,0 +1,23 @@
+# Единственная точка входа снаружи. Caddy сам получает сертификат Let's Encrypt для SITE_ADDRESS
+# (например 203-0-113-5.sslip.io) и проксирует всё во frontend (nginx), а тот - /api в core.
+{
+	# HTTPS можно повесить не на 443 (например, если 443 занят VPN). Порт 80 нужен для сертификата
+	https_port {$HTTPS_PORT:443}
+}
+
+{$SITE_ADDRESS} {
+	tls {
+		issuer acme {
+			# сертификат подтверждаем только через порт 80: 443 может быть занят другим сервисом
+			disable_tlsalpn_challenge
+		}
+	}
+	encode gzip
+	reverse_proxy frontend:80
+}
+
+# http -> https с явным портом: автоматическое перенаправление Caddy порт не подставляет
+# и вело бы на 443. Проверка Let's Encrypt на порту 80 при этом продолжает работать
+http://{$SITE_ADDRESS} {
+	redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
+}
