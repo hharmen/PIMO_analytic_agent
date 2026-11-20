@@ -4,7 +4,7 @@
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import DATABASE_URL
@@ -30,6 +30,12 @@ def get_db() -> Iterator[Session]:
 
 def create_tables() -> None:
 
-    from app.db import models 
+    from app.db import models
+    from app.db.migrations import add_user_access_flags
 
-    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            # Serialize startup schema changes across multiple Core processes.
+            connection.execute(text("SELECT pg_advisory_xact_lock(724609183)"))
+        Base.metadata.create_all(connection)
+        add_user_access_flags(connection)

@@ -23,6 +23,8 @@ def get_current_user(
 ) -> User:
     def unauthorized(code: str = "invalid_token") -> HTTPException:
         message = "Сессия истекла. Войдите снова." if code == "token_expired" else "Сессия недействительна. Войдите снова."
+        if code == "account_blocked":
+            message = "Аккаунт заблокирован. Обратитесь к администратору."
         return HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": code, "message": message},
@@ -38,4 +40,13 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise unauthorized()
+    if not user.is_active:
+        raise unauthorized("account_blocked")
+    return user
+
+
+def get_current_admin(user: User = Depends(get_current_user)) -> User:
+    # Read the role from the DB on every request; a JWT never grants admin rights.
+    if not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Доступ разрешён только администратору")
     return user

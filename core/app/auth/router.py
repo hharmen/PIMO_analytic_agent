@@ -36,6 +36,11 @@ def login(body: Credentials, db: Session = Depends(get_db)) -> TokenOut:
     password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
     if user is None or not password_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный email или пароль")
+    if not user.is_active:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "account_blocked", "message": "Аккаунт заблокирован. Обратитесь к администратору."},
+        )
     return TokenOut(access_token=create_access_token(user.id))
 
 

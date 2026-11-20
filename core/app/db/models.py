@@ -4,7 +4,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -35,6 +35,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
 
     chats: Mapped[list["Chat"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -81,3 +83,17 @@ class CheckRun(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
     chat: Mapped[Chat] = relationship(back_populates="check_runs")
+
+
+class AdminAudit(Base):
+    """Снимки участников сохраняют смысл записи даже после удаления аккаунта."""
+
+    __tablename__ = "admin_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[int | None]
+    actor_email: Mapped[str] = mapped_column(String(255))
+    target_id: Mapped[int]
+    target_email: Mapped[str] = mapped_column(String(255))
+    action: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
