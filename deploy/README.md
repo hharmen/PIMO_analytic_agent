@@ -27,8 +27,18 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER      # затем перелогиниться
 ```
 
-Порты 80 и 443 должны быть свободны (`sudo ss -ltnp | grep -E ':(80|443)\s'`) и открыты у облачного
-провайдера (группа безопасности). Порт 80 нужен Let's Encrypt для проверки адреса.
+Порт 80 должен быть свободен и открыт у облачного провайдера (группа безопасности): через него
+Let's Encrypt проверяет адрес. Если 443 занят (например VPN), HTTPS вешается на другой порт -
+`HTTPS_PORT=9443` в `.env`, адрес будет `https://<SITE_ADDRESS>:9443`. Свободные порты:
+`ss -ltn`.
+
+Память: стек в пике занимает около 620 МБ (замерено на демо-сценариях), у каждого контейнера
+лимит. На сервере с 1 ГБ памяти нужен swap:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
 
 ## 2. Код и настройки
 
