@@ -31,7 +31,7 @@ def get_db() -> Iterator[Session]:
 def create_tables() -> None:
 
     from app.db import models
-    from app.db.migrations import add_user_access_flags
+    from app.db.migrations import add_message_file_link, add_user_access_flags
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
@@ -39,3 +39,4 @@ def create_tables() -> None:
             connection.execute(text("SELECT pg_advisory_xact_lock(724609183)"))
         Base.metadata.create_all(connection)
         add_user_access_flags(connection)
+        add_message_file_link(connection)

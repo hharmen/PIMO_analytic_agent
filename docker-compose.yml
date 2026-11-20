@@ -26,6 +26,38 @@ services:
     ports:
       - "8001:8001"
 
+  # S3-хранилище файлов. Консоль: http://localhost:9001 (логин/пароль ниже)
+  # Официальный образ minio/minio убран с Docker Hub, берём сборку Bitnami той же версии
+  minio:
+    image: bitnamilegacy/minio:2025.4.22
+    environment:
+      MINIO_ROOT_USER: pimo
+      MINIO_ROOT_PASSWORD: pimo-minio
+    volumes:
+      - miniodata:/bitnami/minio/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  file_service:
+    build: ./file_service
+    environment:
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY: pimo
+      S3_SECRET_KEY: pimo-minio
+      S3_BUCKET: pimo-files
+      # OCR сканов и картинок через LiteLLM МАИ: ключ берётся из .env, сертификат - тот же, что у core
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_CA_FILE: certs/api-ai.mai.ru.pem
+    volumes:
+      - ./core/certs:/app/certs:ro
+    ports:
+      - "8002:8002"
+    depends_on:
+      minio:
+        condition: service_started
+
   core:
     build: ./core
     env_file:
@@ -34,6 +66,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://pimo:pimo@db:5432/pimo
       CHECKER_URL: http://checker:8001
+      FILE_SERVICE_URL: http://file_service:8002
     ports:
       - "8000:8000"
     depends_on:
@@ -41,6 +74,9 @@ services:
         condition: service_healthy
       checker:
         condition: service_healthy
+      file_service:
+        condition: service_healthy
 
 volumes:
   pgdata:
+  miniodata:

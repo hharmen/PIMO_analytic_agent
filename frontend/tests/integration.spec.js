@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const date = '2026-10-31T10:00:00Z'
+const FILE_TEXT = 'Заявку нельзя исполнить после отмены.'
 const user = { id: 1, email: 'test@example.com', created_at: date }
 const makeMessage = (id, role, content) => ({ id, role, content, created_at: new Date(Date.parse(date) + id * 1000).toISOString() })
 const makeRun = (id, status = 'PROPERTY_VIOLATED') => ({
@@ -19,7 +20,7 @@ const makeRun = (id, status = 'PROPERTY_VIOLATED') => ({
 })
 
 async function mockCore(page, { authenticated = true, sendStatus, noCheck = false, failSend = false, expired = false, answerText } = {}) {
-  const state = { chats: [], messages: [], checks: [], sends: 0, registered: false }
+  const state = { chats: [], messages: [], checks: [], sends: 0, uploads: 0, downloads: 0, fileIds: [], registered: false }
   await page.addInitScript((authenticated) => {
     if (authenticated) sessionStorage.setItem('pimo.token', 'test-token')
   }, authenticated)
@@ -33,6 +34,14 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
     if (request.headers().authorization !== 'Bearer test-token') return reply({ detail: 'Нет токена' }, 401)
     if (expired) return reply({ detail: 'Сессия истекла' }, 401)
     if (path === '/auth/me') return reply(user)
+    if (path === '/files' && method === 'POST') {
+      const form = request.postData() || ''
+      if (form.includes('filename="broken.pdf"')) return reply({ detail: 'Не удалось прочитать PDF' }, 422)
+      state.uploads++
+      const warnings = form.includes('filename="scan.pdf"') ? ['Распознано с изображения (OCR): стр. 1, 2. Проверьте текст, возможны ошибки'] : []
+      return reply({ id: state.uploads, filename: `план-${state.uploads}.docx`, content_type: 'application/octet-stream', size: 100, chars: FILE_TEXT.length, created_at: date, text: FILE_TEXT, warnings }, 201)
+    }
+    if (/^\/files\/\d+\/download$/.test(path)) { state.downloads++; return route.fulfill({ status: 200, body: 'DOCX', contentType: 'application/octet-stream' }) }
     if (path === '/chats' && method === 'GET') return reply(state.chats)
     if (path === '/chats' && method === 'POST') {
       const chat = { id: state.chats.length + 1, title: 'Новый чат', created_at: date }
@@ -48,8 +57,9 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
     if (path.endsWith('/messages') && method === 'GET') return reply(state.messages)
     if (path.endsWith('/messages') && method === 'POST') {
       state.sends++
-      const content = request.postDataJSON().content
-      const sent = makeMessage(state.messages.length + 1, 'user', content)
+      const { content, file_id: fileId } = request.postDataJSON()
+      state.fileIds.push(fileId)
+      const sent = { ...makeMessage(state.messages.length + 1, 'user', content), file: fileId ? { id: fileId, filename: `план-${fileId}.docx` } : null }
       state.messages.push(sent)
       state.chats.find((chat) => chat.id === id).title = content.slice(0, 60)
       if (failSend) return reply({ detail: 'Агент не смог ответить. Сообщение сохранено' }, 500)
@@ -164,20 +174,67 @@ test('expired session clears token and requests login', async ({ page }) => {
   expect(await page.evaluate(() => sessionStorage.getItem('pimo.token'))).toBeNull()
 })
 
-test('TXT content reaches API; unsupported and oversized files do not', async ({ page }) => {
+test('file text from File Service reaches the agent and the file stays in chat history', async ({ page }) => {
   const state = await mockCore(page)
   await page.goto('/#/input')
   const fileInput = page.locator('input[type=file]')
-  await fileInput.setInputFiles({ name: 'requirements.pdf', mimeType: 'application/pdf', buffer: Buffer.from('PDF') })
-  await expect(page.getByRole('alert')).toContainText('Поддерживается TXT')
-  await fileInput.setInputFiles({ name: 'long.txt', mimeType: 'text/plain', buffer: Buffer.from('x'.repeat(20001)) })
-  await expect(page.getByRole('alert')).toContainText('больше 20000')
-  const content = 'Заявку нельзя исполнить после отмены.'
-  await fileInput.setInputFiles({ name: 'requirements.txt', mimeType: 'text/plain', buffer: Buffer.from(content) })
-  await expect(page.getByLabel('Требования к системе')).toHaveValue(content)
+  await fileInput.setInputFiles({ name: 'requirements.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') })
+  await expect(page.getByRole('alert')).toContainText('Поддерживаются файлы TXT, MD, DOCX, PDF и картинки PNG, JPG')
+  expect(state.uploads).toBe(0)
+  await fileInput.setInputFiles({ name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') })
+  await expect(page.getByRole('alert')).toContainText('Не удалось прочитать PDF')
+  await fileInput.setInputFiles({ name: 'plan.docx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK') })
+  await expect(page.getByLabel('Требования к системе')).toHaveValue(FILE_TEXT)
+  await expect(page.getByText('Текст из «план-1.docx» вставлен в поле')).toBeVisible()
   await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
   await expect(page.locator('.message-preview')).toHaveCount(2)
-  expect(state.messages[0].content).toBe(content)
+  expect(state.messages[0].content).toBe(FILE_TEXT)
+  expect(state.fileIds).toEqual([1])
+  await expect(page.locator('.message-preview-user .message-file')).toHaveText('Из файла «план-1.docx»')
+
+  // файл можно прикрепить и в продолжении диалога
+  await page.locator('.chat-composer input[type=file]').setInputFiles({ name: 'plan2.docx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK') })
+  await expect(page.getByLabel('Продолжить диалог')).toHaveValue(FILE_TEXT)
+  await page.getByRole('button', { name: 'Отправить агенту' }).click()
+  await expect(page.locator('.message-preview')).toHaveCount(4)
+  expect(state.fileIds).toEqual([1, 2])
+
+  // полный текст сообщения: имя файла и скачивание оригинала
+  await page.getByRole('button', { name: /^Открыть сообщение:/ }).first().click()
+  await expect(page.getByRole('heading', { name: 'Ваше сообщение' })).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.locator('.message-file').getByRole('button', { name: 'Скачать' }).click()
+  expect((await download).suggestedFilename()).toBe('план-1.docx')
+  expect(state.downloads).toBe(1)
+})
+
+test('OCR warnings from File Service are shown next to the attached file', async ({ page }) => {
+  await mockCore(page)
+  await page.goto('/#/input')
+  await page.locator('input[type=file]').setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') })
+  await expect(page.getByLabel('Требования к системе')).toHaveValue(FILE_TEXT)
+  await expect(page.locator('.file-warnings')).toContainText('Распознано с изображения (OCR): стр. 1, 2')
+  await page.getByRole('button', { name: 'Открепить файл' }).click()
+  await expect(page.locator('.file-warnings')).toHaveCount(0)
+})
+
+test('detached file and example text are sent without file_id', async ({ page }) => {
+  const state = await mockCore(page)
+  await page.goto('/#/input')
+  await page.locator('input[type=file]').setInputFiles({ name: 'plan.docx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK') })
+  await expect(page.getByLabel('Требования к системе')).toHaveValue(FILE_TEXT)
+  await page.getByRole('button', { name: 'Вставить пример' }).click()
+  await expect(page.getByText('вставлен в поле')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
+  await expect(page.locator('.message-preview')).toHaveCount(2)
+
+  await page.locator('.chat-composer input[type=file]').setInputFiles({ name: 'plan.docx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK') })
+  await expect(page.getByText('вставлен в поле')).toBeVisible()
+  await page.getByRole('button', { name: 'Открепить файл' }).click()
+  await page.getByRole('button', { name: 'Отправить агенту' }).click()
+  await expect(page.locator('.message-preview')).toHaveCount(4)
+  expect(state.fileIds).toEqual([null, null])
+  await expect(page.locator('.message-file')).toHaveCount(0)
 })
 
 test('successful verification shows the scope of the model', async ({ page }) => {

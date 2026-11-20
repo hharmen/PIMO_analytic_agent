@@ -1,4 +1,4 @@
-"""Core API: вход для фронтенда. Аутентификация, чаты, сообщения, вызов агента и checker'а."""
+"""Core API: вход для фронтенда. Аутентификация, чаты, сообщения, файлы, вызов агента и checker'а."""
 
 from contextlib import asynccontextmanager
 
@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.router import router as auth_router
 from app.admin.router import router as admin_router
 from app.chats.router import router as chats_router
+from app.files.router import router as files_router
 from app.config import CHECKER_URL, CORS_ORIGINS, FILE_SERVICE_URL
 from app.db.session import create_tables
 
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(chats_router)
 app.include_router(admin_router)
+app.include_router(files_router)
 
 
 @app.get("/health", tags=["service"])

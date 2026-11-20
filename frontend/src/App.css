@@ -1867,6 +1867,8 @@
 .message-heading { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .message-heading time { font-size: 12px; color: var(--ink-soft); }
 .message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-file { display: block; margin: 0 0 8px; font-size: 13px; color: var(--ink-soft); }
+.file-warnings { margin: 8px 0 0; padding: 10px 14px 10px 30px; border: 1px solid var(--line); border-left: 3px solid var(--crimson); border-radius: 8px; font-size: 14px; }
 .markdown-content { white-space: normal; }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
