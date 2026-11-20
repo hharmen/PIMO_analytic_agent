@@ -7,19 +7,28 @@ MinIO, PostgreSQL) доступны только внутри Docker-сети.
 Домена нет - используем [sslip.io](https://sslip.io): адрес `203-0-113-5.sslip.io` указывает на IP
 `203.0.113.5`. На такой адрес Let's Encrypt выдаёт обычный сертификат.
 
-## 1. Docker и файрвол
+## 1. Docker
+
+**Если на сервере есть VPN или другие сервисы - файрвол (ufw, iptables) не трогать.** Включённый ufw
+с правилами только для SSH/80/443 закроет порт VPN.
+
+Docker при установке меняет iptables и может выставить политику `FORWARD DROP` - тогда VPN-клиенты
+теряют интернет через сервер. Поэтому до установки:
+
+```bash
+sudo mkdir -p /etc/docker
+echo '{ "ip-forward-no-drop": true }' | sudo tee /etc/docker/daemon.json
+```
+
+Затем, если Docker ещё не установлен (`docker --version`):
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER      # затем перелогиниться
-
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
 ```
 
-Порт 80 нужен Let's Encrypt для проверки адреса и для перенаправления на HTTPS.
+Порты 80 и 443 должны быть свободны (`sudo ss -ltnp | grep -E ':(80|443)\s'`) и открыты у облачного
+провайдера (группа безопасности). Порт 80 нужен Let's Encrypt для проверки адреса.
 
 ## 2. Код и настройки
 
