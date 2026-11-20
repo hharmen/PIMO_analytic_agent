@@ -18,8 +18,27 @@ def client():
         yield c
 
 
-def register_and_login(client, email="user@example.com", password="password123") -> dict:
-    """Регистрирует пользователя и возвращает заголовок авторизации."""
+def register_and_login(client, email="user@example.com", password="password123", access=True) -> dict:
+    """Регистрирует пользователя и возвращает заголовок авторизации.
+
+    access=True - сразу выдать доступ к агенту на 30 дней без лимита (как сделал бы админ).
+    """
     client.post("/auth/register", json={"email": email, "password": password})
     token = client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}"}
+    if access:
+        grant_access(client.get("/auth/me", headers=headers).json()["id"])
+    return headers
+
+
+def grant_access(user_id: int, days: int = 30, daily_limit: int | None = None) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import User
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        user.access_until = datetime.now(timezone.utc) + timedelta(days=days)
+        user.daily_limit = daily_limit
+        db.commit()

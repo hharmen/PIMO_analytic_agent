@@ -119,5 +119,7 @@ export const adminApi = {
   summary: () => request('/admin/summary'),
   users: (params) => request(`/admin/users?${new URLSearchParams(params)}`),
   setActive: (id, is_active) => request(`/admin/users/${id}`, { method: 'PATCH', body: { is_active } }),
+  // доступ к агенту: дата 'YYYY-MM-DD' (включительно, по Москве) или null - закрыть; лимит в сутки или null
+  setAccess: (id, accessUntilDate, dailyLimit) => request(`/admin/users/${id}/access`, { method: 'PUT', body: { access_until_date: accessUntilDate, daily_limit: dailyLimit } }),
   audit: (params) => request(`/admin/audit?${new URLSearchParams(params)}`),
 }

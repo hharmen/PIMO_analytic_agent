@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.access.rules import access_info
 from app.auth.deps import get_current_user
-from app.auth.schemas import Credentials, TokenOut, UserOut
+from app.auth.schemas import Credentials, MeOut, TokenOut, UserOut
 from app.auth.security import DUMMY_HASH, create_access_token, hash_password, verify_password
 from app.db.models import User
 from app.db.session import get_db
@@ -44,7 +45,7 @@ def login(body: Credentials, db: Session = Depends(get_db)) -> TokenOut:
     return TokenOut(access_token=create_access_token(user.id))
 
 
-@router.get("/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)) -> User:
-    """Кто я. Фронт использует это, чтобы проверить, что сохранённый токен ещё действует."""
-    return user
+@router.get("/me", response_model=MeOut)
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Кто я и есть ли доступ к агенту. Фронт так проверяет, что сохранённый токен ещё действует."""
+    return {**UserOut.model_validate(user).model_dump(), "agent_access": access_info(db, user)}

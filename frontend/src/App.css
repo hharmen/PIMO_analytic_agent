@@ -2041,3 +2041,13 @@ button:disabled { cursor: wait; }
   .workspace-path { font-size: 11px; }
   .workspace-path span { margin-inline: 4px; }
 }
+
+/* доступ к агенту в панели аккаунта */
+.access-label { font-size: 13px; color: var(--ink-soft); }
+.access-label.is-problem { color: var(--crimson); }
+.admin-access { display: flex; flex-direction: column; gap: 4px; }
+.admin-access small { color: var(--ink-soft); }
+.admin-access-form { display: grid; gap: 8px; min-width: 200px; }
+.admin-access-form label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.admin-access-form input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.admin-access-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
