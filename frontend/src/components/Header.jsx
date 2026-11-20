@@ -39,7 +39,7 @@ export default function Header({ route, onNavigate }) {
             <button type="button" onClick={() => scrollTo('how')}>Как это работает</button>
             <button type="button" onClick={() => scrollTo('criteria')}>Что проверяем</button>
           </nav>
-        ) : (
+        ) : route === 'chat' ? <span className="workspace-path">Диалоги <span>/</span> Агент-аналитик</span> : (
           <Stepper current={route} />
         )}
 

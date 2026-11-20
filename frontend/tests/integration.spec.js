@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test'
 
 const date = '2026-10-31T10:00:00Z'
 const user = { id: 1, email: 'test@example.com', created_at: date }
-const makeMessage = (id, role, content) => ({ id, role, content, created_at: date })
+const makeMessage = (id, role, content) => ({ id, role, content, created_at: new Date(Date.parse(date) + id * 1000).toISOString() })
 const makeRun = (id, status = 'PROPERTY_VIOLATED') => ({
-  id, status, created_at: date,
+  id, status, created_at: new Date(Date.parse(date) + (id * 2 - 0.5) * 1000).toISOString(),
   model_json: { variables: [], properties: status === 'MODEL_INVALID' ? {} : [{ id: 'P1', description: 'Отменённая заявка не исполняется' }] },
   result_json: {
     engine: 'TLC', status, results: [{
@@ -53,9 +53,10 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
       state.messages.push(sent)
       state.chats.find((chat) => chat.id === id).title = content.slice(0, 60)
       if (failSend) return reply({ detail: 'Агент не смог ответить. Сообщение сохранено' }, 500)
-      const answer = makeMessage(state.messages.length + 1, 'assistant', answerText ?? (noCheck ? 'Уточните условия отмены.' : 'Исполнение возможно после отмены.'))
+      const skipCheck = noCheck || state.noCheck
+      const answer = makeMessage(state.messages.length + 1, 'assistant', answerText ?? (skipCheck ? 'Уточните условия отмены.' : 'Исполнение возможно после отмены.'))
       state.messages.push(answer)
-      const run = noCheck ? null : makeRun(state.sends, sendStatus)
+      const run = skipCheck ? null : makeRun(state.sends, state.sendStatus || sendStatus)
       if (run) state.checks.push(run)
       return reply({ user_message: sent, assistant_message: answer, check_run: run }, 201)
     }
@@ -64,9 +65,16 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
   return state
 }
 
-async function submitRequirements(page, text = 'Проверь отмену заявки') {
+async function submitRequirements(page, text = 'Проверь отмену заявки', open = true) {
   await page.getByLabel('Требования к системе').fill(text)
   await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
+  if (open) await openAnswer(page)
+  else await expect(page.locator('.message-preview-assistant')).toHaveCount(1)
+}
+
+async function openAnswer(page, index = 0) {
+  await page.getByRole('button', { name: /^Открыть ответ агента:/ }).nth(index).click()
+  await expect(page.getByRole('heading', { name: 'Ответ агента', exact: true })).toBeVisible()
 }
 
 test('registration, login, token and real response contract', async ({ page }) => {
@@ -82,21 +90,36 @@ test('registration, login, token and real response contract', async ({ page }) =
   await expect(page.getByText('Запрет исполнения после отмены', { exact: true })).toBeVisible()
   expect(state.registered).toBe(true)
   expect(state.sends).toBe(1)
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Проверь отмену заявки' })).toBeVisible()
 })
 
-test('continuation uses same chat, restores full history and deletes chat', async ({ page }) => {
+test('continuation preserves the timeline and opens the correct check after reload', async ({ page }) => {
   const state = await mockCore(page)
   await page.goto('/#/input')
-  await submitRequirements(page)
-  await page.getByRole('button', { name: 'Уточнить требования / продолжить' }).click()
-  await page.getByLabel('Требования к системе').fill('При отмене approved сбрасывается.')
+  await submitRequirements(page, 'Проверь отмену заявки', false)
+  await page.getByLabel('Продолжить диалог', { exact: true }).fill('При отмене approved сбрасывается.')
+  await expect(page.locator('.message-preview')).toHaveCount(2)
+  state.sendStatus = 'PROPERTY_HOLDS'
   await page.getByRole('button', { name: 'Отправить агенту' }).click()
-  await expect(page.getByRole('heading', { name: 'История проверок · 2' })).toBeVisible()
+  await expect(page.locator('.message-preview')).toHaveCount(4)
   expect(state.chats).toHaveLength(1)
+  await openAnswer(page, 0)
+  await expect(page.locator('.check-run')).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Найдено нарушение' })).toBeVisible()
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
+  await openAnswer(page, 1)
+  await expect(page.getByRole('heading', { name: 'Свойства выполнены' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Найдено нарушение' })).toHaveCount(0)
   await page.reload()
-  await expect(page.locator('.message')).toHaveCount(4)
+  await expect(page.locator('.check-run')).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Свойства выполнены' })).toBeVisible()
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
+  await page.reload()
+  await expect(page.locator('.message-preview')).toHaveCount(4)
+  await page.getByRole('button', { name: 'Все проверки', exact: true }).click()
   await expect(page.locator('.check-run')).toHaveCount(2)
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
   await page.getByRole('button', { name: 'Удалить чат', exact: true }).click()
   await page.getByRole('button', { name: 'Да, удалить' }).click()
   await expect(page.getByLabel('Требования к системе')).toBeVisible()
@@ -108,7 +131,7 @@ test('clarification without check result is displayed without a verdict', async 
   await page.goto('/#/input')
   await submitRequirements(page)
   await expect(page.getByText('Уточните условия отмены.', { exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'История проверок · 0' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Проверки этого ответа · 0' })).toBeVisible()
   await expect(page.locator('.check-run')).toHaveCount(0)
 })
 
@@ -125,12 +148,12 @@ for (const status of ['TIMEOUT', 'STATE_LIMIT_REACHED', 'MODEL_INVALID', 'ENGINE
 test('agent error reconciles saved message and preserves draft', async ({ page }) => {
   const state = await mockCore(page, { failSend: true })
   await page.goto('/#/input')
-  await submitRequirements(page, 'Исходные требования')
+  await page.getByLabel('Требования к системе').fill('Исходные требования')
+  await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Сообщение сохранено')
-  await expect(page.locator('.message')).toHaveCount(1)
+  await expect(page.locator('.message-preview')).toHaveCount(1)
   expect(state.sends).toBe(1)
-  await page.getByRole('button', { name: 'Уточнить требования / продолжить' }).click()
-  await expect(page.getByLabel('Требования к системе')).toHaveValue('Исходные требования')
+  await expect(page.getByLabel('Продолжить диалог', { exact: true })).toHaveValue('Исходные требования')
 })
 
 test('expired session clears token and requests login', async ({ page }) => {
@@ -153,7 +176,7 @@ test('TXT content reaches API; unsupported and oversized files do not', async ({
   await fileInput.setInputFiles({ name: 'requirements.txt', mimeType: 'text/plain', buffer: Buffer.from(content) })
   await expect(page.getByLabel('Требования к системе')).toHaveValue(content)
   await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
-  await expect(page.locator('.message')).toHaveCount(2)
+  await expect(page.locator('.message-preview')).toHaveCount(2)
   expect(state.messages[0].content).toBe(content)
 })
 
@@ -212,4 +235,100 @@ test('agent Markdown renders headings, tables and code safely with an opaque hea
   await page.screenshot({ path: testInfo.outputPath('formatted-report.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('saved chats are searchable and switching restores each independent history', async ({ page }) => {
+  await mockCore(page)
+  const chats = [{ id: 2, title: 'Оплата заказа', created_at: date }, { id: 1, title: 'Отмена заявки', created_at: date }]
+  const histories = {
+    1: [makeMessage(1, 'user', 'Правила отмены'), makeMessage(2, 'assistant', 'Ответ об отмене')],
+    2: [makeMessage(3, 'user', 'Правила оплаты'), makeMessage(4, 'assistant', 'Ответ об оплате')],
+  }
+  await page.route('**/api/chats**', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const path = new URL(route.request().url()).pathname
+    const id = Number(path.split('/')[3])
+    await route.fulfill({ json: path === '/api/chats' ? chats : path.endsWith('/checks') ? [] : histories[id] })
+  })
+  await page.goto('/#/input')
+  const sidebar = page.getByRole('complementary', { name: 'Ваши чаты' })
+  await expect(sidebar.getByRole('button', { name: /Оплата заказа/ })).toBeVisible()
+  await sidebar.getByRole('button', { name: /Отмена заявки/ }).click()
+  await expect(page.getByText('Ответ об отмене', { exact: true })).toBeVisible()
+  await page.getByLabel('Продолжить диалог', { exact: true }).fill('Черновик про отмену')
+  await sidebar.getByRole('button', { name: /Оплата заказа/ }).click()
+  await expect(page.getByText('Ответ об оплате', { exact: true })).toBeVisible()
+  await expect(page.getByText('Ответ об отмене', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Продолжить диалог', { exact: true })).toHaveValue('')
+  await sidebar.getByRole('button', { name: /Отмена заявки/ }).click()
+  await expect(page.getByLabel('Продолжить диалог', { exact: true })).toHaveValue('Черновик про отмену')
+  await sidebar.getByRole('button', { name: /Оплата заказа/ }).click()
+  await page.reload()
+  await expect(page.getByText('Ответ об оплате', { exact: true })).toBeVisible()
+  await page.getByLabel('Поиск чатов').fill('отмена')
+  await expect(sidebar.getByRole('button', { name: /Оплата заказа/ })).toHaveCount(0)
+  await expect(sidebar.getByRole('button', { name: /Отмена заявки/ })).toBeVisible()
+  await page.getByLabel('Поиск чатов').fill('нет такого чата')
+  await expect(sidebar.getByText('Чаты не найдены.')).toBeVisible()
+  await page.getByLabel('Поиск чатов').fill('')
+  await page.getByRole('button', { name: 'Новый чат', exact: true }).click()
+  await expect(page.getByLabel('Требования к системе')).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: /Отмена заявки/ })).toBeVisible()
+})
+
+test('clarification after a check never reuses the previous verdict', async ({ page }) => {
+  const state = await mockCore(page)
+  await page.goto('/#/input')
+  await submitRequirements(page, 'Исходные требования', false)
+  state.noCheck = true
+  await page.getByLabel('Продолжить диалог', { exact: true }).fill('Какие условия нужны?')
+  await page.getByRole('button', { name: 'Отправить агенту' }).click()
+  await expect(page.locator('.message-preview-assistant')).toHaveCount(2)
+  await openAnswer(page, 1)
+  await expect(page.getByRole('heading', { name: 'Проверки этого ответа · 0' })).toBeVisible()
+  await expect(page.locator('.check-run')).toHaveCount(0)
+  await expect(page.getByText('Уточните условия отмены.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
+  await openAnswer(page, 0)
+  await expect(page.locator('.check-run')).toHaveCount(1)
+})
+
+test('history remains visible during a reply and Ctrl+Enter submits once', async ({ page }) => {
+  const state = await mockCore(page)
+  await page.goto('/#/input')
+  await submitRequirements(page, 'Исходные требования', false)
+  let release
+  const pending = new Promise((resolve) => { release = resolve })
+  await page.route('**/api/chats/*/messages', async (route) => {
+    if (route.request().method() === 'POST') await pending
+    await route.fallback()
+  })
+  const composer = page.getByLabel('Продолжить диалог', { exact: true })
+  await composer.fill('Уточнение условий')
+  await composer.press('Control+Enter')
+  await expect(page.getByRole('status')).toContainText('Агент анализирует')
+  await expect(page.locator('.message-preview-assistant')).toHaveCount(1)
+  await expect(composer).toBeDisabled()
+  release()
+  await expect(page.locator('.message-preview-assistant')).toHaveCount(2)
+  await expect(composer).toHaveValue('')
+  expect(state.sends).toBe(2)
+})
+
+test('long replies stay compact and chat layout works on mobile', async ({ page }, testInfo) => {
+  const fullAnswer = '## Подробный ответ\n\n' + 'Длинное объяснение требований и найденных проблем. '.repeat(200)
+  await mockCore(page, { answerText: fullAnswer })
+  await page.goto('/#/input')
+  await submitRequirements(page, 'Проверка длинного ответа', false)
+  await expect(page.locator('.message-preview')).toHaveCount(2)
+  expect(await page.locator('.message-preview-assistant').evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(300)
+  await page.screenshot({ path: testInfo.outputPath('desktop-messenger.png'), fullPage: true })
+  await openAnswer(page)
+  await expect(page.locator('.message-assistant')).toContainText('Длинное объяснение требований и найденных проблем. '.repeat(200).trim())
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.getByRole('button', { name: 'К переписке', exact: true }).click()
+  await expect(page.getByLabel('Продолжить диалог', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('mobile-messenger.png'), fullPage: true })
 })
