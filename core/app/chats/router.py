@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access.rules import require_agent_access
 from app.agent.service import run_agent
 from app.auth.deps import get_current_user
 from app.chats.schemas import (
@@ -81,7 +82,10 @@ def list_messages(chat: Chat = Depends(get_own_chat)) -> list[Message]:
 
 @router.post("/{chat_id}/messages", response_model=SendMessageOut, status_code=status.HTTP_201_CREATED)
 def send_message(
-    body: MessageCreate, chat: Chat = Depends(get_own_chat), db: Session = Depends(get_db)
+    body: MessageCreate,
+    chat: Chat = Depends(get_own_chat),
+    _: User = Depends(require_agent_access),  # срок и лимит, выданные админом; проверка до сохранения сообщения
+    db: Session = Depends(get_db),
 ) -> SendMessageOut:
     """Сохраняет сообщение пользователя, зовёт агента и сохраняет его ответ.
 

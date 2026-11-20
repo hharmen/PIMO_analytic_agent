@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.access.rules import require_agent_access
 from app.auth.deps import get_current_user
 from app.clients import file_client
 from app.clients.file_client import FileServiceError
@@ -35,8 +36,8 @@ def _service_error(exc: FileServiceError) -> HTTPException:
 
 
 @router.post("", response_model=FileWithText, status_code=status.HTTP_201_CREATED)
-async def upload(file: UploadFile, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
-    """Принимает файл, возвращает извлечённый из него текст."""
+async def upload(file: UploadFile, user: User = Depends(require_agent_access), db: Session = Depends(get_db)) -> dict:
+    """Принимает файл, возвращает извлечённый из него текст. Нужен доступ к агенту: OCR тратит ключ LLM."""
     limit = MAX_UPLOAD_MB * 1024 * 1024
     data = await file.read(limit + 1)
     if len(data) > limit:

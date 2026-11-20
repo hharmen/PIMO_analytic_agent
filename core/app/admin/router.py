@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.admin.schemas import AdminSummary, AdminUserOut, AuditPage, UserPage, UserStatusUpdate
+from app.access.rules import day_start, end_of_day, now_utc
+from app.admin.schemas import AdminSummary, AdminUserOut, AuditPage, UserAccessUpdate, UserPage, UserStatusUpdate
 from app.auth.deps import get_current_admin
 from app.db.models import AdminAudit, Chat, CheckRun, Message, User
 from app.db.session import get_db
@@ -23,14 +24,24 @@ def user_query():
         select(Chat.user_id, func.count(CheckRun.id).label("check_count"))
         .join(CheckRun, CheckRun.chat_id == Chat.id).group_by(Chat.user_id).subquery()
     )
+    # запросы к агенту за текущие сутки по Москве - то же, что считает лимит (app/access/rules.py)
+    today = (
+        select(Chat.user_id, func.count(Message.id).label("requests_today"))
+        .join(Message, Message.chat_id == Chat.id)
+        .where(Message.role == "user", Message.created_at >= day_start(now_utc()))
+        .group_by(Chat.user_id).subquery()
+    )
     return (
         select(User.id, User.email, User.created_at, User.is_admin, User.is_active,
+               User.access_until, User.daily_limit,
                func.coalesce(chats.c.chat_count, 0).label("chat_count"),
                func.coalesce(messages.c.message_count, 0).label("message_count"),
-               func.coalesce(checks.c.check_count, 0).label("check_count"), messages.c.last_activity_at)
+               func.coalesce(checks.c.check_count, 0).label("check_count"), messages.c.last_activity_at,
+               func.coalesce(today.c.requests_today, 0).label("requests_today"))
         .outerjoin(chats, chats.c.user_id == User.id)
         .outerjoin(messages, messages.c.user_id == User.id)
         .outerjoin(checks, checks.c.user_id == User.id)
+        .outerjoin(today, today.c.user_id == User.id)
     )
 
 
@@ -78,6 +89,28 @@ def set_user_status(
         db.add(AdminAudit(
             actor_id=admin.id, actor_email=admin.email, target_id=user.id, target_email=user.email,
             action="unblock_user" if body.is_active else "block_user",
+        ))
+        db.commit()
+    return db.execute(user_query().where(User.id == user_id)).mappings().one()
+
+
+@router.put("/users/{user_id}/access", response_model=AdminUserOut)
+def set_user_access(
+    user_id: int, body: UserAccessUpdate, admin: User = Depends(get_current_admin), db: Session = Depends(get_db),
+):
+    """Срок доступа к агенту и лимит запросов в сутки. Только администратор, у администраторов ограничений нет."""
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if user is None:
+        raise HTTPException(404, "Пользователь не найден")
+    if user.is_admin:
+        raise HTTPException(409, "У администраторов доступ без ограничений")
+    access_until = end_of_day(body.access_until_date) if body.access_until_date else None
+    if (user.access_until, user.daily_limit) != (access_until, body.daily_limit):
+        user.access_until = access_until
+        user.daily_limit = body.daily_limit
+        db.add(AdminAudit(
+            actor_id=admin.id, actor_email=admin.email, target_id=user.id, target_email=user.email,
+            action="grant_access" if access_until else "revoke_access",
         ))
         db.commit()
     return db.execute(user_query().where(User.id == user_id)).mappings().one()

@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.auth.schemas import UserOut
 
@@ -10,6 +10,7 @@ class AdminUserOut(UserOut):
     message_count: int
     check_count: int
     last_activity_at: datetime | None
+    requests_today: int = Field(description="Запросов к агенту за текущие сутки по Москве")
 
 
 class UserPage(BaseModel):
@@ -22,6 +23,14 @@ class UserPage(BaseModel):
 class UserStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     is_active: StrictBool
+
+
+class UserAccessUpdate(BaseModel):
+    """Доступ к агенту. access_until_date: null - закрыть доступ; дата - доступ до конца этого дня по Москве."""
+
+    model_config = ConfigDict(extra="forbid")
+    access_until_date: date | None
+    daily_limit: int | None = Field(None, ge=1, le=10_000, description="Запросов в сутки; null - без лимита")
 
 
 class AdminSummary(BaseModel):

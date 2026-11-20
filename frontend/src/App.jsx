@@ -10,6 +10,7 @@ import ChatSidebar from './components/ChatSidebar'
 import AdminScreen from './screens/AdminScreen'
 import { api, downloadFile, session } from './api'
 import { useHashRoute } from './hooks'
+import { accessLabel, accessProblem } from './access'
 import './App.css'
 
 const ROUTES = ['landing', 'input', 'analysis', 'chat', 'report', 'admin']
@@ -30,6 +31,8 @@ export default function App() {
   const [text, setText] = useState('')
   // файл, из которого взят текст в поле: уйдёт вместе с сообщением и будет виден в истории
   const [attachedFile, setAttachedFile] = useState(null)
+  // доступ к агенту из /auth/me: отдельно от user, чтобы не пересоздавать объект пользователя
+  const [access, setAccess] = useState(null)
   const [chats, setChats] = useState([])
   const [chat, setChat] = useState(null)
   const [messages, setMessages] = useState([])
@@ -69,7 +72,7 @@ export default function App() {
     else sessionStorage.removeItem(RECOVERY_KEY)
     authEpoch.current++
     session.clear()
-    setUser(null); setChats([]); resetChat(); setDeleteId(null); setAttachedFile(null)
+    setUser(null); setAccess(null); setChats([]); resetChat(); setDeleteId(null); setAttachedFile(null)
     drafts.current = {}
     lock.current = false; setBusy('')
     const message = code === 'account_blocked' ? 'Аккаунт заблокирован. Обратитесь к администратору.'
@@ -104,8 +107,11 @@ export default function App() {
       checking = true
       try {
         const currentUser = await api.me()
-        if (active) setUser((previous) => previous?.id === currentUser.id && previous?.is_admin === currentUser.is_admin
-          && previous?.is_active === currentUser.is_active ? previous : currentUser)
+        if (active) {
+          setUser((previous) => previous?.id === currentUser.id && previous?.is_admin === currentUser.is_admin
+            && previous?.is_active === currentUser.is_active ? previous : currentUser)
+          setAccess(currentUser.agent_access ?? null)
+        }
       }
       catch (err) { if (active && err.status === 401) expireSession(err.code) }
       finally { checking = false }
@@ -145,6 +151,7 @@ export default function App() {
         const currentUser = await api.me()
         if (!active || epoch !== authEpoch.current) return
         setUser(currentUser)
+        setAccess(currentUser.agent_access ?? null)
         const list = await api.chats()
         if (!active || epoch !== authEpoch.current) return
         setChats(list)
@@ -212,6 +219,7 @@ export default function App() {
       sessionStorage.removeItem(RECOVERY_KEY)
       setChats(list)
       setUser(currentUser)
+      setAccess(currentUser.agent_access ?? null)
     } catch (err) {
       session.clear()
       throw err
@@ -226,14 +234,21 @@ export default function App() {
 
   function logout() {
     if (lock.current) return
-    session.clear(); setUser(null); setChats([]); resetChat(); setText(''); setAttachedFile(null); setError('')
+    session.clear(); setUser(null); setAccess(null); setChats([]); resetChat(); setText(''); setAttachedFile(null); setError('')
     drafts.current = {}
     sessionStorage.removeItem(RECOVERY_KEY)
     navigate('landing')
   }
 
+  async function refreshAccess() {
+    try { setAccess((await api.me()).agent_access ?? null) } catch { /* не критично: сервер всё равно проверит */ }
+  }
+
   async function send() {
     if (!text.trim() || lock.current || needsRefresh) return
+    // нет доступа - говорим сразу и не создаём пустой чат
+    const problem = accessProblem(access)
+    if (problem) { setError(problem); return }
     await action('send', async () => {
       let selected = chat
       if (!selected) {
@@ -251,11 +266,18 @@ export default function App() {
         setText('')
         setAttachedFile(null)
         navigate('chat', { replace: true })
+        refreshAccess()
         const list = await api.chats()
         setChats(list)
         setChat(list.find((item) => item.id === selected.id) || selected)
       } catch (err) {
         if (err.status === 401 || err.code === 'session_changed') throw err
+        // нет доступа или лимит: сообщение не сохранено, текст остаётся в поле
+        if (['access_not_granted', 'access_expired', 'daily_limit_reached'].includes(err.code)) {
+          refreshAccess()
+          navigate('chat', { replace: true })
+          throw err
+        }
         // Core saves user messages even if the agent fails. Reconcile before another send.
         setNeedsRefresh(true)
         try { await loadChat(selected) } catch (syncError) {
@@ -315,7 +337,7 @@ export default function App() {
   return (
     <div className="app">
       <Header route={screen} onNavigate={(next) => { if (!lock.current) navigate(next) }} />
-      {user && <div className="account-bar container"><span>{user.email}</span>{user.is_admin && <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => navigate(screen === 'admin' ? (chat ? 'chat' : 'input') : 'admin')}>{screen === 'admin' ? 'К моим чатам' : 'Админ-панель'}</button>}<button className="link-btn" type="button" onClick={logout} disabled={Boolean(busy)}>Выйти</button></div>}
+      {user && <div className="account-bar container"><span>{user.email}</span>{accessLabel(access) && <span className={`access-label${accessProblem(access) ? ' is-problem' : ''}`}>{accessLabel(access)}</span>}{user.is_admin && <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => navigate(screen === 'admin' ? (chat ? 'chat' : 'input') : 'admin')}>{screen === 'admin' ? 'К моим чатам' : 'Админ-панель'}</button>}<button className="link-btn" type="button" onClick={logout} disabled={Boolean(busy)}>Выйти</button></div>}
       {error && <div className="error-message container" role="alert">{error}</div>}
       {!ready ? <main className="flow container" role="status">Восстанавливаем сессию…</main> : <>
         <div className={workspace ? 'workspace container' : 'screen-shell'}>

@@ -16,3 +16,12 @@ def add_message_file_link(connection: Connection) -> None:
     columns = {column["name"] for column in inspect(connection).get_columns("messages")}
     if "file_id" not in columns:
         connection.execute(text("ALTER TABLE messages ADD COLUMN file_id INTEGER REFERENCES files(id)"))
+
+
+def add_user_agent_access(connection: Connection) -> None:
+    # срок доступа к агенту и лимит запросов в сутки; у существующих аккаунтов доступа нет, пока его не выдаст админ
+    columns = {column["name"] for column in inspect(connection).get_columns("users")}
+    timestamp = "TIMESTAMP WITH TIME ZONE" if connection.dialect.name == "postgresql" else "DATETIME"
+    for name, sql_type in (("access_until", timestamp), ("daily_limit", "INTEGER")):
+        if name not in columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {sql_type}"))

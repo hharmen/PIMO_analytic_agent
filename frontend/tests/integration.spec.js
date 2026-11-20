@@ -19,7 +19,7 @@ const makeRun = (id, status = 'PROPERTY_VIOLATED') => ({
   },
 })
 
-async function mockCore(page, { authenticated = true, sendStatus, noCheck = false, failSend = false, expired = false, answerText } = {}) {
+async function mockCore(page, { authenticated = true, sendStatus, noCheck = false, failSend = false, expired = false, answerText, agentAccess, sendError } = {}) {
   const state = { chats: [], messages: [], checks: [], sends: 0, uploads: 0, downloads: 0, fileIds: [], registered: false }
   await page.addInitScript((authenticated) => {
     if (authenticated) sessionStorage.setItem('pimo.token', 'test-token')
@@ -33,7 +33,7 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
     if (path === '/auth/login') return reply({ access_token: 'test-token', token_type: 'bearer' })
     if (request.headers().authorization !== 'Bearer test-token') return reply({ detail: 'Нет токена' }, 401)
     if (expired) return reply({ detail: 'Сессия истекла' }, 401)
-    if (path === '/auth/me') return reply(user)
+    if (path === '/auth/me') return reply(agentAccess ? { ...user, agent_access: agentAccess } : user)
     if (path === '/files' && method === 'POST') {
       const form = request.postData() || ''
       if (form.includes('filename="broken.pdf"')) return reply({ detail: 'Не удалось прочитать PDF' }, 422)
@@ -57,6 +57,7 @@ async function mockCore(page, { authenticated = true, sendStatus, noCheck = fals
     if (path.endsWith('/messages') && method === 'GET') return reply(state.messages)
     if (path.endsWith('/messages') && method === 'POST') {
       state.sends++
+      if (sendError) return reply({ detail: sendError }, sendError.code === 'daily_limit_reached' ? 429 : 403)
       const { content, file_id: fileId } = request.postDataJSON()
       state.fileIds.push(fileId)
       const sent = { ...makeMessage(state.messages.length + 1, 'user', content), file: fileId ? { id: fileId, filename: `план-${fileId}.docx` } : null }
@@ -388,4 +389,30 @@ test('long replies stay compact and chat layout works on mobile', async ({ page 
   await expect(page.getByLabel('Продолжить диалог', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('mobile-messenger.png'), fullPage: true })
+})
+
+test('without agent access the request is not sent and the reason is shown', async ({ page }) => {
+  const state = await mockCore(page, { agentAccess: { state: 'none', access_until: null, daily_limit: null, used_today: 0 } })
+  await page.goto('/#/input')
+  await expect(page.locator('.access-label')).toHaveText('Доступ к агенту не выдан')
+  await page.getByLabel('Требования к системе').fill('Проверь отмену заявки')
+  await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Доступ к агенту ещё не выдан. Обратитесь к администратору.')
+  expect(state.chats).toEqual([])  // пустой чат не создаётся
+  expect(state.sends).toBe(0)
+  await expect(page.getByLabel('Требования к системе')).toHaveValue('Проверь отмену заявки')
+})
+
+test('access with a limit is shown; a limit error from the server keeps the draft', async ({ page }) => {
+  const state = await mockCore(page, {
+    agentAccess: { state: 'ok', access_until: '2026-12-10T21:00:00Z', daily_limit: 20, used_today: 3 },
+    sendError: { code: 'daily_limit_reached', message: 'Лимит 20 запросов на сегодня исчерпан. Новые запросы - после 00:00 МСК.' },
+  })
+  await page.goto('/#/input')
+  await expect(page.locator('.access-label')).toHaveText('Доступ до 10.12.2026 · сегодня 3 из 20')
+  await page.getByLabel('Требования к системе').fill('Проверь отмену заявки')
+  await page.getByRole('button', { name: 'Проверить требования', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Лимит 20 запросов на сегодня исчерпан')
+  expect(state.messages).toEqual([])
+  await expect(page.getByLabel('Продолжить диалог')).toHaveValue('Проверь отмену заявки')
 })

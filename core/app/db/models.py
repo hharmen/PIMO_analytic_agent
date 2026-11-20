@@ -37,6 +37,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    # доступ к агенту выдаёт админ: до какого момента (None - не выдан) и сколько запросов в сутки (None - без лимита)
+    access_until: Mapped[datetime | None] = mapped_column(UTCDateTime, default=None)
+    daily_limit: Mapped[int | None] = mapped_column(default=None)
 
     chats: Mapped[list["Chat"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     files: Mapped[list["UploadedFile"]] = relationship(back_populates="user", cascade="all, delete-orphan")

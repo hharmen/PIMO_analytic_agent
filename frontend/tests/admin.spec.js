@@ -48,6 +48,16 @@ async function setup(page, { admin = true, failLoad = false, route = 'admin' } =
         target_id: user.id, target_email: user.email, action: user.is_active ? 'unblock_user' : 'block_user', created_at: date })
       return reply(user)
     }
+    if (path.startsWith('/admin/users/') && path.endsWith('/access') && request.method() === 'PUT') {
+      const user = state.users.find((item) => item.id === Number(path.split('/').at(-2)))
+      const body = request.postDataJSON()
+      state.accessBodies = [...(state.accessBodies || []), body]
+      // как на сервере: доступ до конца выбранного дня по Москве = 21:00 UTC этого дня
+      user.access_until = body.access_until_date ? `${body.access_until_date}T21:00:00Z` : null
+      user.daily_limit = body.daily_limit
+      user.requests_today = 0
+      return reply(user)
+    }
     if (path === '/admin/audit') return reply({ items: state.audit, total: state.audit.length, limit: 20, offset: 0 })
     return reply({ detail: 'Not found' }, 404)
   })
@@ -157,4 +167,37 @@ test('blocked account gets an explicit message and the panel fits mobile', async
   state.expired = true; state.authCode = 'account_blocked'
   await page.getByRole('button', { name: 'Обновить данные', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Аккаунт заблокирован')
+})
+
+test('admin grants agent access with an end date and a daily limit, then closes it', async ({ page }) => {
+  const state = await setup(page)
+  await search(page, 'user5@')
+  const row = userSection(page).getByRole('row', { name: /user5@example.com/ })
+  await expect(row).toContainText('Не выдан')
+  await row.getByRole('button', { name: 'Изменить доступ user5@example.com' }).click()
+  await row.getByLabel('Доступ до (включительно, МСК)').fill('2026-12-10')
+  await row.getByLabel('Запросов в сутки').fill('20')
+  await row.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'user5@example.com: доступ до 10.12.2026, 20 запросов в сутки.' })).toBeVisible()
+  expect(state.accessBodies).toEqual([{ access_until_date: '2026-12-10', daily_limit: 20 }])
+  await expect(row).toContainText('10.12.2026')
+  await expect(row).toContainText('Лимит 20/сутки · сегодня 0')
+
+  // пустой лимит = без лимита; затем закрыть доступ
+  await row.getByRole('button', { name: 'Изменить доступ user5@example.com' }).click()
+  await row.getByLabel('Запросов в сутки').fill('')
+  await row.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(row).toContainText('Без лимита')
+  await row.getByRole('button', { name: 'Изменить доступ user5@example.com' }).click()
+  await row.getByRole('button', { name: 'Закрыть доступ' }).click()
+  await expect(row).toContainText('Не выдан')
+  expect(state.accessBodies.slice(1)).toEqual([{ access_until_date: '2026-12-10', daily_limit: null }, { access_until_date: null, daily_limit: null }])
+})
+
+test('administrators are shown without access limits and cannot be edited', async ({ page }) => {
+  await setup(page)
+  await search(page, 'admin@')
+  const row = userSection(page).getByRole('row', { name: /admin@example.com/ })
+  await expect(row).toContainText('Без ограничений')
+  await expect(row.getByRole('button', { name: /Изменить доступ/ })).toHaveCount(0)
 })
