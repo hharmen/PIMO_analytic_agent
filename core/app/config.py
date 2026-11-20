@@ -13,10 +13,12 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "60"))
+if JWT_EXPIRE_MINUTES <= 0:
+    raise RuntimeError("JWT_EXPIRE_MINUTES должен быть положительным числом минут")
 BCRYPT_ROUNDS = int(os.environ.get("BCRYPT_ROUNDS", "12"))
 
-if APP_ENV == "production" and JWT_SECRET in ("", "change-me"):
-    raise RuntimeError("В production нужно задать настоящий JWT_SECRET (длинная случайная строка)")
+if APP_ENV == "production" and (JWT_SECRET in ("", "change-me") or len(JWT_SECRET.encode()) < 32):
+    raise RuntimeError("В production нужно задать случайный JWT_SECRET длиной не менее 32 байт")
 if not JWT_SECRET:
     JWT_SECRET = "dev-only-secret-do-not-use-in-production"
 

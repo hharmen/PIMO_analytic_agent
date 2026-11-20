@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.auth.security import decode_access_token
+from app.auth.security import AccessTokenError, decode_access_token
 from app.db.models import User
 from app.db.session import get_db
 
@@ -21,17 +21,21 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    unauthorized = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Требуется вход: передайте заголовок Authorization: Bearer <токен>",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    def unauthorized(code: str = "invalid_token") -> HTTPException:
+        message = "Сессия истекла. Войдите снова." if code == "token_expired" else "Сессия недействительна. Войдите снова."
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": code, "message": message},
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+        )
+
     if credentials is None:
-        raise unauthorized
-    user_id = decode_access_token(credentials.credentials)
-    if user_id is None:
-        raise unauthorized
+        raise unauthorized("authentication_required")
+    try:
+        user_id = decode_access_token(credentials.credentials)
+    except AccessTokenError as exc:
+        raise unauthorized(exc.code) from exc
     user = db.get(User, user_id)
     if user is None:
-        raise unauthorized
+        raise unauthorized()
     return user

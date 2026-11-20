@@ -31,10 +31,28 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> int | None:
-    """Возвращает id пользователя из токена или None, если токен подделан, повреждён или просрочен."""
+class AccessTokenError(ValueError):
+    def __init__(self, code: str = "invalid_token"):
+        self.code = code
+        super().__init__(code)
+
+
+def decode_access_token(token: str) -> int:
+    """Проверяет подпись, обязательные claims, срок и формат id пользователя."""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return int(payload["sub"])
-    except (jwt.PyJWTError, KeyError, ValueError):
-        return None
+        payload = jwt.decode(
+            token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"require": ["sub", "iat", "exp"]}
+        )
+        subject = payload["sub"]
+        # Keep ids inside the database's signed integer range. Reject malformed
+        # signed claims as 401 instead of letting DB conversion raise a 500.
+        if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal() or len(subject) > 19:
+            raise AccessTokenError()
+        user_id = int(subject)
+        if not 0 < user_id <= 2**63 - 1:
+            raise AccessTokenError()
+        return user_id
+    except jwt.ExpiredSignatureError as exc:
+        raise AccessTokenError("token_expired") from exc
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise AccessTokenError() from exc
