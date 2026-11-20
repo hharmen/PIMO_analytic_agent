@@ -15,3 +15,9 @@
 	encode gzip
 	reverse_proxy frontend:80
 }
+
+# http -> https с явным портом: автоматическое перенаправление Caddy порт не подставляет
+# и вело бы на 443. Проверка Let's Encrypt на порту 80 при этом продолжает работать
+http://{$SITE_ADDRESS} {
+	redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
+}
