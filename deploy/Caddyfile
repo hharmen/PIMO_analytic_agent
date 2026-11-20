@@ -1,0 +1,6 @@
+# Единственная точка входа снаружи. Caddy сам получает сертификат Let's Encrypt для SITE_ADDRESS
+# (например 203-0-113-5.sslip.io) и проксирует всё во frontend (nginx), а тот - /api в core.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy frontend:80
+}

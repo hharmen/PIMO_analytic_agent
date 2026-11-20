@@ -1,0 +1,57 @@
+# Запуск на сервере: поверх обычного docker-compose.yml.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up -d --build
+# Отличия от локального запуска:
+#   - наружу открыт только Caddy (80/443, HTTPS), остальные сервисы видны только внутри Docker-сети;
+#   - пароли БД и MinIO, JWT_SECRET - из .env (шаблон deploy/.env.example);
+#   - сервисы перезапускаются после сбоя и перезагрузки сервера.
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?задайте SITE_ADDRESS в .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data   # сертификаты: без тома Caddy запрашивал бы их при каждом перезапуске
+    depends_on:
+      - frontend
+
+  frontend:
+    restart: unless-stopped
+    ports: !reset []
+
+  db:
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+
+  checker:
+    restart: unless-stopped
+    ports: !reset []
+
+  minio:
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?задайте MINIO_PASSWORD в .env}
+    ports: !reset []
+
+  file_service:
+    restart: unless-stopped
+    environment:
+      S3_SECRET_KEY: ${MINIO_PASSWORD}
+    ports: !reset []
+
+  core:
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env (openssl rand -hex 32)}
+      DATABASE_URL: postgresql+psycopg://pimo:${POSTGRES_PASSWORD}@db:5432/pimo
+    ports: !reset []
+
+volumes:
+  caddy_data:
