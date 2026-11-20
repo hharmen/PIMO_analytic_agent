@@ -5,13 +5,15 @@ import AuthScreen from './screens/AuthScreen'
 import InputScreen from './screens/InputScreen'
 import AnalysisScreen from './screens/AnalysisScreen'
 import ReportScreen from './screens/ReportScreen'
+import ChatScreen from './screens/ChatScreen'
+import ChatSidebar from './components/ChatSidebar'
 import { api, session } from './api'
-import { chatTitle } from './data'
 import { useHashRoute } from './hooks'
 import './App.css'
 
-const ROUTES = ['landing', 'input', 'analysis', 'report']
+const ROUTES = ['landing', 'input', 'analysis', 'chat', 'report']
 const CHAT_KEY = 'pimo.chat'
+const MESSAGE_KEY = 'pimo.message'
 
 export default function App() {
   const [route, navigate] = useHashRoute(ROUTES, 'landing')
@@ -26,13 +28,22 @@ export default function App() {
   const [checks, setChecks] = useState([])
   const [deleteId, setDeleteId] = useState(null)
   const [needsRefresh, setNeedsRefresh] = useState(false)
+  const [selectedMessageId, setSelectedMessageId] = useState(null)
   const lock = useRef(false)
+  const drafts = useRef({})
+
+  function updateText(nextText) {
+    drafts.current[chat?.id || 'new'] = nextText
+    setText(nextText)
+  }
 
   function resetChat() {
     setChat(null)
     setMessages([])
     setChecks([])
     setNeedsRefresh(false)
+    setSelectedMessageId(null)
+    sessionStorage.removeItem(MESSAGE_KEY)
     sessionStorage.removeItem(CHAT_KEY)
   }
 
@@ -47,11 +58,15 @@ export default function App() {
     } else setError(err.message)
   }
 
-  async function loadChat(selected) {
+  async function loadChat(selected, preserveSelection = false) {
     const [nextMessages, nextChecks] = await Promise.all([api.messages(selected.id), api.checks(selected.id)])
     setChat(selected)
     setMessages(nextMessages)
     setChecks(nextChecks)
+    if (!preserveSelection) {
+      setSelectedMessageId(null)
+      sessionStorage.removeItem(MESSAGE_KEY)
+    }
     setNeedsRefresh(false)
     sessionStorage.setItem(CHAT_KEY, String(selected.id))
   }
@@ -74,7 +89,9 @@ export default function App() {
           const [history, runs] = await Promise.all([api.messages(selected.id), api.checks(selected.id)])
           if (!active) return
           setChat(selected); setMessages(history); setChecks(runs)
-          if (route !== 'landing') navigate('report', { replace: true })
+          const messageId = Number(sessionStorage.getItem(MESSAGE_KEY))
+          setSelectedMessageId(history.some((message) => message.id === messageId) ? messageId : null)
+          if (route !== 'landing') navigate(route === 'report' ? 'report' : 'chat', { replace: true })
         }
       } catch (err) { if (active) handleError(err) }
       finally { if (active) { lock.current = false; setBusy(''); setReady(true) } }
@@ -87,8 +104,9 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || busy) return
-    if (route === 'analysis') navigate(chat ? 'report' : 'input', { replace: true })
-    if (route === 'report' && !chat) navigate('input', { replace: true })
+    if (route === 'analysis') navigate(chat ? 'chat' : 'input', { replace: true })
+    if ((route === 'report' || route === 'chat') && !chat) navigate('input', { replace: true })
+    if (route === 'input' && chat) navigate('chat', { replace: true })
   }, [ready, busy, route, chat, navigate])
 
   async function action(name, work) {
@@ -122,6 +140,7 @@ export default function App() {
   function logout() {
     if (lock.current) return
     session.clear(); setUser(null); setChats([]); resetChat(); setText(''); setError('')
+    drafts.current = {}
     navigate('landing')
   }
 
@@ -140,8 +159,9 @@ export default function App() {
         const reply = await api.send(selected.id, text.trim())
         setMessages((history) => [...history, reply.user_message, reply.assistant_message])
         if (reply.check_run) setChecks((history) => [...history, reply.check_run])
+        delete drafts.current[selected.id]
         setText('')
-        navigate('report', { replace: true })
+        navigate('chat', { replace: true })
         const list = await api.chats()
         setChats(list)
         setChat(list.find((item) => item.id === selected.id) || selected)
@@ -152,42 +172,62 @@ export default function App() {
           if (syncError.status === 401) throw syncError
           err.message += ' Не удалось обновить историю. Нажмите «Обновить» перед продолжением.'
         }
-        navigate('report', { replace: true })
+        navigate('chat', { replace: true })
         if (err.status === 0) err.message += ' Ответ мог сохраниться на сервере. Обновите чат перед повторной отправкой.'
         throw err
       }
     })
   }
 
-  const screen = busy === 'send' ? 'analysis' : route
+  function openMessage(messageId) {
+    if (lock.current) return
+    setSelectedMessageId(messageId)
+    if (messageId === null) sessionStorage.removeItem(MESSAGE_KEY)
+    else sessionStorage.setItem(MESSAGE_KEY, String(messageId))
+    navigate('report')
+    window.scrollTo(0, 0)
+  }
+
+  function selectChat(selected) {
+    if (selected.id === chat?.id) { navigate('chat'); return }
+    action('load', async () => { await loadChat(selected); setText(drafts.current[selected.id] || ''); setDeleteId(null); navigate('chat') })
+  }
+
+  function refreshChats() {
+    action('load', async () => { setChats(await api.chats()); if (chat) await loadChat(chat, true) })
+  }
+
+  function deleteChat() {
+    if (deleteId !== chat.id) { setDeleteId(chat.id); return }
+    action('delete', async () => {
+      await api.deleteChat(chat.id)
+      delete drafts.current[chat.id]
+      setChats((list) => list.filter((item) => item.id !== chat.id))
+      resetChat(); setText(''); setDeleteId(null); navigate('input')
+    })
+  }
+
+  const screen = busy === 'send' ? (messages.length ? 'chat' : 'analysis') : route
+  const workspace = screen !== 'landing' && Boolean(user)
+  useEffect(() => { window.scrollTo(0, 0) }, [screen])
   return (
     <div className="app">
       <Header route={screen} onNavigate={(next) => { if (!lock.current) navigate(next) }} />
       {user && <div className="account-bar container"><span>{user.email}</span><button className="link-btn" type="button" onClick={logout} disabled={Boolean(busy)}>Выйти</button></div>}
       {error && <div className="error-message container" role="alert">{error}</div>}
       {!ready ? <main className="flow container" role="status">Восстанавливаем сессию…</main> : <>
-        {screen !== 'landing' && user && <nav className="chat-bar container" aria-label="Чаты">
-          <button type="button" className="ghost-btn" disabled={Boolean(busy)} onClick={startNew}>Новый чат</button>
-          <label htmlFor="chat-select">История</label>
-          <select id="chat-select" value={chat?.id || ''} disabled={Boolean(busy)} onChange={(event) => {
-            const selected = chats.find((item) => item.id === Number(event.target.value))
-            if (selected) action('load', async () => { await loadChat(selected); setText(''); setDeleteId(null); navigate('report') })
-          }}><option value="" disabled>Выберите чат</option>{chats.map((item) => <option key={item.id} value={item.id}>{chatTitle(item.title)}</option>)}</select>
-          <button type="button" className="link-btn" disabled={Boolean(busy)} onClick={() => action('load', async () => { setChats(await api.chats()); if (chat) await loadChat(chat) })}>Обновить</button>
-          {chat && (deleteId === chat.id ? <>
-            <span>Удалить чат и его историю?</span>
-            <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => action('delete', async () => { await api.deleteChat(chat.id); setChats((list) => list.filter((item) => item.id !== chat.id)); resetChat(); setText(''); setDeleteId(null); navigate('input') })}>Да, удалить</button>
-            <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => setDeleteId(null)}>Отмена</button>
-          </> : <button className="link-btn" type="button" disabled={Boolean(busy)} onClick={() => setDeleteId(chat.id)}>Удалить чат</button>)}
-          {busy && busy !== 'send' && <span role="status">Загрузка…</span>}
-        </nav>}
+        <div className={workspace ? 'workspace container' : 'screen-shell'}>
+        {workspace && <ChatSidebar chats={chats} currentId={chat?.id} onSelect={selectChat} onNew={startNew} onRefresh={refreshChats} disabled={Boolean(busy)} loading={busy === 'load'} />}
         <main className={`screen screen-${screen} is-enter`}>
+          {busy === 'load' && <p className="workspace-loading" role="status">Загружаем историю…</p>}
           {screen === 'landing' ? <Landing onStart={() => navigate('input')} />
             : !user ? <AuthScreen onAuthenticate={authenticate} busy={Boolean(busy)} />
               : screen === 'analysis' && busy === 'send' ? <AnalysisScreen />
-                : screen === 'report' && chat ? <ReportScreen chat={chat} messages={messages} checks={checks} onEdit={() => { if (!lock.current) navigate('input') }} onRestart={startNew} disabled={Boolean(busy) || needsRefresh} />
-                  : <InputScreen disabled={Boolean(busy) || needsRefresh} text={text} onTextChange={setText} onSubmit={send} continuing={Boolean(chat)} onBack={() => { if (!lock.current) navigate(chat ? 'report' : 'landing') }} />}
+                : screen === 'chat' && chat ? <ChatScreen chat={chat} messages={messages} checks={checks} text={text} onTextChange={updateText} onSubmit={send} onOpenMessage={openMessage} onOpenChecks={() => openMessage(null)} onRefresh={refreshChats} onDelete={deleteChat} deletePending={deleteId === chat.id} onCancelDelete={() => setDeleteId(null)} disabled={Boolean(busy)} sending={busy === 'send'} needsRefresh={needsRefresh} loading={busy === 'load'} />
+                  : screen === 'report' && chat ? <ReportScreen chat={chat} messages={messages} checks={checks} selectedMessageId={selectedMessageId} onBack={() => navigate('chat')} disabled={Boolean(busy)} />
+                    : <InputScreen disabled={Boolean(busy) || needsRefresh} text={text} onTextChange={setText} onSubmit={send} continuing={Boolean(chat)} onBack={() => { if (!lock.current) navigate(chat ? 'chat' : 'landing') }} />}
         </main>
+        </div>
       </>}
       <footer className="footer container"><span>PIMO · агент-аналитик</span><span>Проверка конечной модели требований с помощью TLC</span></footer>
     </div>

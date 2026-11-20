@@ -1,5 +1,7 @@
 import { CRITERIA, chatTitle, statusLabel } from '../data'
 import MarkdownMessage from '../components/MarkdownMessage'
+import { ArrowLeftIcon } from '../components/Icons'
+import { checksForMessage } from '../conversation'
 
 function Trace({ trace, title }) {
   if (!trace?.steps?.length) return null
@@ -45,27 +47,32 @@ function CheckRun({ run }) {
   )
 }
 
-export default function ReportScreen({ chat, messages, checks, onEdit, onRestart, disabled }) {
+export default function ReportScreen({ chat, messages, checks, selectedMessageId, onBack, disabled }) {
+  const selected = messages.find((message) => message.id === selectedMessageId)
+  const previousUser = selected?.role === 'assistant'
+    ? messages.slice(0, messages.indexOf(selected)).findLast((message) => message.role === 'user') : null
+  const visibleMessages = [previousUser, selected].filter(Boolean)
+  const visibleChecks = selected ? checksForMessage(messages, checks, selected.id) : checks
   return (
-    <div className="flow container">
-      <div className="report-main-head"><div><span className="eyebrow">Диалог с агентом</span><h1 className="chat-title">{chatTitle(chat.title)}</h1></div><button type="button" className="ghost-btn" disabled={disabled} onClick={onRestart}>Новый чат</button></div>
-      <div className="conversation-layout">
-        <section aria-label="Переписка" className="conversation">
-          {!messages.length && <p>В этом чате ещё нет сообщений. Добавьте требования для проверки.</p>}
-          {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}>
+    <div className="flow container report-detail">
+      <button type="button" className="back-btn" disabled={disabled} onClick={onBack}><ArrowLeftIcon />К переписке</button>
+      <div className="report-main-head"><div><span className="eyebrow">{chatTitle(chat.title)}</span><h1 className="chat-title">{selected ? (selected.role === 'assistant' ? 'Ответ агента' : 'Ваше сообщение') : 'Все проверки чата'}</h1></div></div>
+      <div className={`conversation-layout ${!selected || selected.role === 'user' ? 'single-column' : ''}`}>
+        {selected && <section aria-label="Полный текст сообщения" className="conversation">
+          {visibleMessages.map((message) => <article className={`message message-${message.role}`} key={message.id}>
             <div className="message-heading"><strong>{message.role === 'user' ? 'Вы' : 'Агент-аналитик'}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru-RU')}</time></div>
             {message.role === 'assistant'
               ? <MarkdownMessage>{message.content}</MarkdownMessage>
               : <div className="message-content">{message.content}</div>}
           </article>)}
-          <button type="button" className="primary-btn" disabled={disabled} onClick={onEdit}>Уточнить требования / продолжить</button>
-        </section>
-        <section aria-label="История проверок" className="checks">
-          <h2>История проверок · {checks.length}</h2>
-          {!checks.length && <p className="empty-state">Проверок пока нет. Агент может запросить уточнение или сообщить о недоступности проверки. Ответ без результата TLC не означает, что свойства выполнены.</p>}
-          {[...checks].reverse().map((run) => <CheckRun key={run.id} run={run} />)}
-        </section>
+        </section>}
+        {selected?.role !== 'user' && <section aria-label="Результаты проверки" className="checks">
+          <h2>{selected ? 'Проверки этого ответа' : 'История проверок'} · {visibleChecks.length}</h2>
+          {!visibleChecks.length && <p className="empty-state">{selected ? 'К этому ответу нет результата проверки. ' : 'Проверок пока нет. '}Агент может запросить уточнение или сообщить о недоступности проверки. Ответ без результата TLC не означает, что свойства выполнены.</p>}
+          {[...visibleChecks].reverse().map((run) => <CheckRun key={run.id} run={run} />)}
+        </section>}
       </div>
+      <button type="button" className="primary-btn" disabled={disabled} onClick={onBack}>Продолжить диалог</button>
     </div>
   )
 }
