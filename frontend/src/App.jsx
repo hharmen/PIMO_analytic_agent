@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Header from './components/Header'
 import Landing from './screens/Landing'
 import AuthScreen from './screens/AuthScreen'
@@ -14,6 +14,11 @@ import './App.css'
 const ROUTES = ['landing', 'input', 'analysis', 'chat', 'report']
 const CHAT_KEY = 'pimo.chat'
 const MESSAGE_KEY = 'pimo.message'
+const RECOVERY_KEY = 'pimo.session-recovery'
+
+function readRecovery() {
+  try { return JSON.parse(sessionStorage.getItem(RECOVERY_KEY)) } catch { return null }
+}
 
 export default function App() {
   const [route, navigate] = useHashRoute(ROUTES, 'landing')
@@ -31,13 +36,14 @@ export default function App() {
   const [selectedMessageId, setSelectedMessageId] = useState(null)
   const lock = useRef(false)
   const drafts = useRef({})
+  const authEpoch = useRef(0)
 
   function updateText(nextText) {
     drafts.current[chat?.id || 'new'] = nextText
     setText(nextText)
   }
 
-  function resetChat() {
+  const resetChat = useCallback(() => {
     setChat(null)
     setMessages([])
     setChecks([])
@@ -45,18 +51,67 @@ export default function App() {
     setSelectedMessageId(null)
     sessionStorage.removeItem(MESSAGE_KEY)
     sessionStorage.removeItem(CHAT_KEY)
-  }
+  }, [])
+
+  const expireSession = useCallback((code) => {
+    if (!session.get()) return
+    const userId = user?.id || session.userId()
+    const previous = readRecovery()
+    const recovery = {
+      userId,
+      chatId: chat?.id || Number(sessionStorage.getItem(CHAT_KEY)) || previous?.chatId || null,
+      text: text || (previous?.userId === userId ? previous.text : '') || '',
+    }
+    if (userId) sessionStorage.setItem(RECOVERY_KEY, JSON.stringify(recovery))
+    else sessionStorage.removeItem(RECOVERY_KEY)
+    authEpoch.current++
+    session.clear()
+    setUser(null); setChats([]); resetChat(); setDeleteId(null)
+    drafts.current = {}
+    lock.current = false; setBusy('')
+    const message = code === 'token_expired' ? 'Сессия истекла. Войдите снова.' : 'Сессия недействительна. Войдите снова.'
+    setError(message + (recovery.text ? ' Черновик сохранён и восстановится после входа в тот же аккаунт.' : ''))
+    navigate('input', { replace: true })
+  }, [user, chat, text, resetChat, navigate])
 
   function handleError(err) {
+    if (err.code === 'session_changed') return
     if (err.status === 401) {
-      session.clear()
-      sessionStorage.removeItem(CHAT_KEY)
-      setUser(null)
-      setChats([])
-      resetChat()
-      setError('Сессия истекла. Войдите снова; текст в поле сохранён.')
+      expireSession(err.code === 'token_expired' || /истекла/i.test(err.message) ? 'token_expired' : 'invalid_token')
     } else setError(err.message)
   }
+
+  useEffect(() => {
+    if (!user) return undefined
+    let active = true
+    let checking = false
+    let timer
+    function checkExpiry() {
+      const expiresAt = session.expiresAt()
+      if (expiresAt === null) return false
+      const remaining = expiresAt - Date.now()
+      if (remaining <= 0) { expireSession('token_expired'); return true }
+      window.clearTimeout(timer)
+      timer = window.setTimeout(checkExpiry, Math.min(remaining, 2147483647))
+      return false
+    }
+    async function revalidate() {
+      if (document.hidden || checkExpiry() || checking) return
+      checking = true
+      try { await api.me() }
+      catch (err) { if (active && err.status === 401) expireSession(err.code) }
+      finally { checking = false }
+    }
+    checkExpiry()
+    window.addEventListener('focus', revalidate)
+    document.addEventListener('visibilitychange', revalidate)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+      window.removeEventListener('focus', revalidate)
+      document.removeEventListener('visibilitychange', revalidate)
+    }
+  }, [user, expireSession])
 
   async function loadChat(selected, preserveSelection = false) {
     const [nextMessages, nextChecks] = await Promise.all([api.messages(selected.id), api.checks(selected.id)])
@@ -73,28 +128,34 @@ export default function App() {
 
   useEffect(() => {
     let active = true
+    const epoch = authEpoch.current
     async function restore() {
       if (!session.get()) { setReady(true); return }
       lock.current = true
       setBusy('restore')
       try {
         const currentUser = await api.me()
-        if (!active) return
+        if (!active || epoch !== authEpoch.current) return
         setUser(currentUser)
         const list = await api.chats()
-        if (!active) return
+        if (!active || epoch !== authEpoch.current) return
         setChats(list)
         const selected = list.find((item) => String(item.id) === sessionStorage.getItem(CHAT_KEY))
         if (selected) {
           const [history, runs] = await Promise.all([api.messages(selected.id), api.checks(selected.id)])
-          if (!active) return
+          if (!active || epoch !== authEpoch.current) return
           setChat(selected); setMessages(history); setChecks(runs)
           const messageId = Number(sessionStorage.getItem(MESSAGE_KEY))
           setSelectedMessageId(history.some((message) => message.id === messageId) ? messageId : null)
           if (route !== 'landing') navigate(route === 'report' ? 'report' : 'chat', { replace: true })
         }
-      } catch (err) { if (active) handleError(err) }
-      finally { if (active) { lock.current = false; setBusy(''); setReady(true) } }
+      } catch (err) { if (active && epoch === authEpoch.current) handleError(err) }
+      finally {
+        if (active) {
+          if (epoch === authEpoch.current) { lock.current = false; setBusy('') }
+          setReady(true)
+        }
+      }
     }
     restore()
     return () => { active = false }
@@ -114,8 +175,9 @@ export default function App() {
     lock.current = true
     setBusy(name)
     setError('')
-    try { await work() } catch (err) { handleError(err) }
-    finally { lock.current = false; setBusy('') }
+    const epoch = authEpoch.current
+    try { await work() } catch (err) { if (epoch === authEpoch.current) handleError(err) }
+    finally { if (epoch === authEpoch.current) { lock.current = false; setBusy('') } }
   }
 
   async function authenticate(credentials, register) {
@@ -126,8 +188,25 @@ export default function App() {
       if (register) await api.register(credentials)
       const token = await api.login(credentials)
       session.set(token.access_token)
-      setUser(await api.me())
-      try { setChats(await api.chats()) } catch (err) { handleError(err) }
+      const currentUser = await api.me()
+      const list = await api.chats()
+      const recovery = readRecovery()
+      resetChat()
+      drafts.current = {}
+      setText('')
+      if (recovery?.userId === currentUser.id) {
+        const selected = list.find((item) => item.id === recovery.chatId)
+        if (selected) await loadChat(selected)
+        setText(recovery.text || '')
+        if (selected) drafts.current[selected.id] = recovery.text || ''
+        navigate(selected ? 'chat' : 'input', { replace: true })
+      }
+      sessionStorage.removeItem(RECOVERY_KEY)
+      setChats(list)
+      setUser(currentUser)
+    } catch (err) {
+      session.clear()
+      throw err
     } finally { lock.current = false; setBusy('') }
   }
 
@@ -141,6 +220,7 @@ export default function App() {
     if (lock.current) return
     session.clear(); setUser(null); setChats([]); resetChat(); setText(''); setError('')
     drafts.current = {}
+    sessionStorage.removeItem(RECOVERY_KEY)
     navigate('landing')
   }
 
@@ -166,6 +246,7 @@ export default function App() {
         setChats(list)
         setChat(list.find((item) => item.id === selected.id) || selected)
       } catch (err) {
+        if (err.status === 401 || err.code === 'session_changed') throw err
         // Core saves user messages even if the agent fails. Reconcile before another send.
         setNeedsRefresh(true)
         try { await loadChat(selected) } catch (syncError) {
